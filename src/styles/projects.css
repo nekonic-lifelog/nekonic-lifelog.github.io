@@ -1,0 +1,156 @@
+.project-section {
+  gap: 12px;
+}
+
+.project-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.project-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.project-card--held {
+  opacity: 0.55;
+}
+
+.project-card--done .project-name {
+  color: var(--muted);
+}
+
+.project-card--overdue .project-name {
+  color: var(--danger);
+}
+
+.project-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.project-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-count {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.project-bar {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.project-bar__fill {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.project-alerts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.project-alert {
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 1px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.project-detail__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.project-title--overdue {
+  color: var(--danger);
+}
+
+.project-status button {
+  min-height: 34px;
+  padding: 4px 12px;
+  font-size: 14px;
+}
+
+.project-status button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.project-group .empty {
+  font-size: 13px;
+}
+
+.project-task {
+  align-items: flex-start;
+}
+
+.project-select {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  min-height: 34px;
+}
+
+.project-assignee {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+.project-meeting {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.project-composer {
+  background: var(--bg);
+}

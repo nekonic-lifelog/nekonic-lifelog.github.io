@@ -11,9 +11,12 @@ import {
 } from '../lib/streak'
 import type { Definition } from '../lib/types'
 import { useApp } from '../state/app'
+import { useHabits } from '../state/habits'
+import { useTodos } from '../state/todos'
 
 export function Today() {
   const app = useApp()
+  const todoApi = useTodos()
   const [viewDay, setViewDay] = useState(app.today)
   const boundaryHour = app.snapshot.settings.dayBoundaryHour
 
@@ -126,7 +129,7 @@ export function Today() {
                 <button
                   type="button"
                   className="check"
-                  onClick={() => void app.setTodoStatus(todo, 'done')}
+                  onClick={() => void todoApi.setTodoStatus(todo, 'done')}
                   aria-label={`${todo.title} 완료`}
                 />
                 <span className="todo-title">{todo.title}</span>
@@ -144,6 +147,7 @@ export function Today() {
 
 function HabitRow({ view, viewDay }: { view: HabitView; viewDay: string }) {
   const app = useApp()
+  const habits = useHabits()
   const def = view.definition
   const boundaryHour = app.snapshot.settings.dayBoundaryHour
   const status = useMemo(
@@ -158,7 +162,7 @@ function HabitRow({ view, viewDay }: { view: HabitView; viewDay: string }) {
           <button
             type="button"
             className={status.achieved ? 'check check--on' : 'check'}
-            onClick={() => void app.toggleCheck(def, viewDay)}
+            onClick={() => void habits.toggleCheck(def, viewDay)}
             aria-pressed={status.achieved}
             aria-label={`${def.name} 체크`}
           />
@@ -235,14 +239,14 @@ function QuantityControl({
   day: string
   status: DayStatus
 }) {
-  const app = useApp()
+  const habits = useHabits()
   const [amount, setAmount] = useState('')
   const empty = status.count === 0
 
   const step = () => {
     const parsed = Number(amount)
     if (Number.isFinite(parsed) && parsed !== 0) {
-      void app.addQuantity(def, day, parsed)
+      void habits.addQuantity(def, day, parsed)
       setAmount('')
     }
   }
@@ -267,7 +271,7 @@ function QuantityControl({
         type="button"
         className="qty__undo"
         disabled={empty}
-        onClick={() => void app.undoLast(def, day)}
+        onClick={() => void habits.undoLast(def, day)}
         aria-label="마지막 입력 취소"
         title="마지막 입력 취소"
       >

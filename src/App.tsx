@@ -2,9 +2,13 @@ import { useEffect } from 'react'
 import { requestPersistence } from './lib/platform'
 import { navigate, useRoute } from './lib/router'
 import { useServiceWorker } from './lib/sw'
+import { Books } from './screens/Books'
 import { DDay } from './screens/DDay'
-import { Records, Stats } from './screens/Placeholder'
+import { LinkDevice } from './screens/LinkDevice'
+import { Records } from './screens/Records'
 import { Settings } from './screens/Settings'
+import { Stats } from './screens/Stats'
+import { Timer } from './screens/Timer'
 import { Today } from './screens/Today'
 import { Todos } from './screens/Todos'
 import { InstallBanner, TabBar, UpdateBanner } from './ui/Shell'
@@ -32,6 +36,9 @@ export function App() {
           <button type="button" className="link-btn" onClick={() => navigate('/dday')}>
             D-day
           </button>
+          <button type="button" className="link-btn" onClick={() => navigate('/timer')}>
+            타이머
+          </button>
           <button type="button" className="link-btn" onClick={() => navigate('/settings')}>
             설정
           </button>
@@ -57,6 +64,12 @@ function Screen({ route }: { route: ReturnType<typeof useRoute> }) {
       return <Stats />
     case '/dday':
       return <DDay />
+    case '/books':
+      return <Books />
+    case '/timer':
+      return <Timer />
+    case '/link':
+      return <LinkDevice />
     case '/settings':
       return <Settings />
     case '/today':

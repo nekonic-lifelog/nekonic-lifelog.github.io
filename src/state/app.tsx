@@ -8,40 +8,21 @@ import {
   type ReactNode,
 } from 'react'
 import type { Clock } from '../lib/clock'
-import { dayKeyToDate, logicalDay, todayKey, type DayKey } from '../lib/day'
-import type {
-  Definition,
-  DefinitionKind,
-  LogRecord,
-  Settings,
-  Todo,
-  TodoStatus,
-} from '../lib/types'
-import { withNewTarget } from '../lib/streak'
-import { createBase, softDelete, touch, type WriteCtx } from '../data/mutations'
-import type { Snapshot, Store } from '../data/store'
+import { todayKey, type DayKey } from '../lib/day'
+import type { Settings } from '../lib/types'
+import type { WriteCtx } from '../data/mutations'
+import type { RowTypes, Snapshot, Store, TableName } from '../data/store'
+import { notifyDirty } from './dirty'
 import { DEFAULT_SETTINGS } from '../lib/types'
 
 const EMPTY: Snapshot = {
   definitions: [],
   records: [],
   todos: [],
+  projects: [],
+  books: [],
+  journal: [],
   settings: DEFAULT_SETTINGS,
-}
-
-export interface NewDefinition {
-  name: string
-  kind: DefinitionKind
-  unit?: string | undefined
-  target?: number | undefined
-  targetDays?: number[] | undefined
-}
-
-export interface NewTodo {
-  title: string
-  dueAt?: string | undefined
-  pinned?: boolean | undefined
-  note?: string | undefined
 }
 
 export interface AppApi {
@@ -50,26 +31,13 @@ export interface AppApi {
   deviceId: string
   clock: Clock
   today: DayKey
+  boundaryHour: number
+  ctx: WriteCtx
 
-  addDefinition(input: NewDefinition): Promise<void>
-  editDefinition(
-    def: Definition,
-    patch: Partial<Pick<Definition, 'name' | 'unit' | 'targetDays' | 'archived' | 'order'>>,
-  ): Promise<void>
-  setTarget(def: Definition, target: number): Promise<void>
-  removeDefinition(def: Definition): Promise<void>
-
-  toggleCheck(def: Definition, day: DayKey): Promise<void>
-  addQuantity(def: Definition, day: DayKey, value: number): Promise<void>
-  undoLast(def: Definition, day: DayKey): Promise<void>
-
-  addTodo(input: NewTodo): Promise<void>
-  editTodo(todo: Todo, patch: Partial<Todo>): Promise<void>
-  setTodoStatus(todo: Todo, status: TodoStatus): Promise<void>
-  removeTodo(todo: Todo): Promise<void>
-
+  write<K extends TableName>(table: K, rows: RowTypes[K][]): Promise<void>
   saveSettings(patch: Partial<Settings>): Promise<void>
   replaceAll(snapshot: Snapshot): Promise<void>
+  adoptDeviceId(id: string): Promise<void>
 }
 
 const Ctx = createContext<AppApi | null>(null)
@@ -80,13 +48,11 @@ export function useApp(): AppApi {
   return api
 }
 
-function atForDay(day: DayKey, clock: Clock, boundaryHour: number): string {
-  if (logicalDay(clock.now(), boundaryHour) === day) {
-    return new Date(clock.now()).toISOString()
-  }
-  const noon = dayKeyToDate(day)
-  noon.setHours(12, 0, 0, 0)
-  return noon.toISOString()
+export function mergeById<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
+  if (incoming.length === 0) return existing
+  const byId = new Map(existing.map((row) => [row.id, row]))
+  for (const row of incoming) byId.set(row.id, row)
+  return [...byId.values()]
 }
 
 export function AppProvider({
@@ -119,143 +85,27 @@ export function AppProvider({
 
   const ctx: WriteCtx = useMemo(() => ({ deviceId, clock }), [deviceId, clock])
 
-  const writeDefs = useCallback(
-    async (rows: Definition[]) => {
-      setSnapshot((s) => ({ ...s, definitions: mergeById(s.definitions, rows) }))
-      await store.put('definitions', rows)
-    },
-    [store],
-  )
-
-  const writeRecords = useCallback(
-    async (rows: LogRecord[]) => {
+  const write = useCallback(
+    async <K extends TableName>(table: K, rows: RowTypes[K][]) => {
       if (rows.length === 0) return
-      setSnapshot((s) => ({ ...s, records: mergeById(s.records, rows) }))
-      await store.put('records', rows)
-    },
-    [store],
-  )
-
-  const writeTodos = useCallback(
-    async (rows: Todo[]) => {
-      setSnapshot((s) => ({ ...s, todos: mergeById(s.todos, rows) }))
-      await store.put('todos', rows)
+      setSnapshot((s) => ({ ...s, [table]: mergeById(s[table] as RowTypes[K][], rows) }))
+      await store.put(table, rows)
+      notifyDirty()
     },
     [store],
   )
 
   const api = useMemo<AppApi>(() => {
     const boundaryHour = snapshot.settings.dayBoundaryHour
-
-    const recordsOn = (def: Definition, day: DayKey) =>
-      snapshot.records.filter(
-        (r) => !r.deleted && r.defId === def.id && logicalDay(r.at, boundaryHour) === day,
-      )
-
     return {
       ready,
       snapshot,
       deviceId,
       clock,
       today: todayKey(clock, boundaryHour),
-
-      async addDefinition(input) {
-        const maxOrder = snapshot.definitions.reduce(
-          (max, d) => (d.deleted ? max : Math.max(max, d.order)),
-          -1,
-        )
-        const base = createBase(ctx)
-        const def: Definition = {
-          ...base,
-          kind: input.kind,
-          name: input.name.trim(),
-          unit: input.unit?.trim() || undefined,
-          targetDays: input.targetDays?.length ? input.targetDays : undefined,
-          targetHistory:
-            input.kind === 'quantity' && input.target !== undefined
-              ? [{ from: base.createdAt, target: input.target }]
-              : [],
-          order: maxOrder + 1,
-          hidden: false,
-          archived: false,
-        }
-        await writeDefs([def])
-      },
-
-      async editDefinition(def, patch) {
-        await writeDefs([touch({ ...def, ...patch }, ctx)])
-      },
-
-      async setTarget(def, target) {
-        const now = new Date(clock.now()).toISOString()
-        const targetHistory = withNewTarget(def.targetHistory, target, now, boundaryHour)
-        await writeDefs([touch({ ...def, targetHistory }, ctx)])
-      },
-
-      async removeDefinition(def) {
-        const orphans = snapshot.records
-          .filter((r) => r.defId === def.id && !r.deleted)
-          .map((r) => softDelete(r, ctx))
-        await writeDefs([softDelete(def, ctx)])
-        await writeRecords(orphans)
-      },
-
-      async toggleCheck(def, day) {
-        const existing = recordsOn(def, day)
-        if (existing.length > 0) {
-          await writeRecords(existing.map((r) => softDelete(r, ctx)))
-          return
-        }
-        await writeRecords([
-          { ...createBase(ctx), defId: def.id, at: atForDay(day, clock, boundaryHour), value: 1 },
-        ])
-      },
-
-      async addQuantity(def, day, value) {
-        if (!Number.isFinite(value) || value === 0) return
-        await writeRecords([
-          {
-            ...createBase(ctx),
-            defId: def.id,
-            at: atForDay(day, clock, boundaryHour),
-            value,
-          },
-        ])
-      },
-
-      async undoLast(def, day) {
-        const newest = recordsOn(def, day).reduce<LogRecord | null>((best, r) => {
-          if (best === null) return r
-          if (r.createdAt !== best.createdAt) return r.createdAt > best.createdAt ? r : best
-          return r.id > best.id ? r : best
-        }, null)
-        if (newest) await writeRecords([softDelete(newest, ctx)])
-      },
-
-      async addTodo(input) {
-        const todo: Todo = {
-          ...createBase(ctx),
-          title: input.title.trim(),
-          status: 'todo',
-          dueAt: input.dueAt,
-          pinned: input.pinned ?? false,
-          note: input.note,
-        }
-        await writeTodos([todo])
-      },
-
-      async editTodo(todo, patch) {
-        await writeTodos([touch({ ...todo, ...patch }, ctx)])
-      },
-
-      async setTodoStatus(todo, status) {
-        const doneAt = status === 'done' ? new Date(clock.now()).toISOString() : undefined
-        await writeTodos([touch({ ...todo, status, doneAt }, ctx)])
-      },
-
-      async removeTodo(todo) {
-        await writeTodos([softDelete(todo, ctx)])
-      },
+      boundaryHour,
+      ctx,
+      write,
 
       async saveSettings(patch) {
         const next = { ...snapshot.settings, ...patch }
@@ -267,15 +117,13 @@ export function AppProvider({
         await store.replaceAll(next)
         setSnapshot(next)
       },
+
+      async adoptDeviceId(id) {
+        await store.adoptDeviceId(id)
+        setDeviceId(id.trim())
+      },
     }
-  }, [snapshot, ready, deviceId, clock, ctx, store, writeDefs, writeRecords, writeTodos])
+  }, [snapshot, ready, deviceId, clock, ctx, store, write])
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>
-}
-
-function mergeById<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
-  if (incoming.length === 0) return existing
-  const byId = new Map(existing.map((row) => [row.id, row]))
-  for (const row of incoming) byId.set(row.id, row)
-  return [...byId.values()]
 }

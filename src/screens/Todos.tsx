@@ -1,16 +1,22 @@
 import { useMemo, useState } from 'react'
-import { daysBetween } from '../lib/day'
-import { activeTodos, dueDayOf, formatRemaining } from '../lib/select'
-import type { Todo } from '../lib/types'
+import { daysBetween, logicalDay } from '../lib/day'
+import { dueDayOf, formatRemaining } from '../lib/select'
+import { personalTodos, projectProgress, sortedProjects } from '../lib/selectProjects'
+import type { Project, Todo } from '../lib/types'
 import { useApp } from '../state/app'
+import { useTodos } from '../state/todos'
+import { AlertChips, ProjectComposer, ProjectDetail } from './Projects'
+import '../styles/projects.css'
 
 export function Todos() {
   const app = useApp()
   const [showDone, setShowDone] = useState(false)
+  const [composing, setComposing] = useState(false)
+  const [openId, setOpenId] = useState<string | null>(null)
   const boundaryHour = app.snapshot.settings.dayBoundaryHour
 
   const { open, done } = useMemo(() => {
-    const all = activeTodos(app.snapshot).filter((t) => !t.projectId)
+    const all = personalTodos(app.snapshot)
     return {
       open: all
         .filter((t) => t.status !== 'done')
@@ -20,6 +26,13 @@ export function Todos() {
         .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? '')),
     }
   }, [app.snapshot])
+
+  const projects = useMemo(() => sortedProjects(app.snapshot), [app.snapshot])
+  const opened = openId === null ? undefined : projects.find((p) => p.id === openId)
+
+  if (opened) {
+    return <ProjectDetail project={opened} onBack={() => setOpenId(null)} />
+  }
 
   return (
     <div className="screen">
@@ -60,6 +73,44 @@ export function Todos() {
           )}
         </section>
       )}
+
+      <section className="card project-section">
+        <div className="card__head">
+          <h2>프로젝트</h2>
+          <button
+            type="button"
+            className="link-btn"
+            onClick={() => setComposing((v) => !v)}
+            aria-expanded={composing}
+          >
+            {composing ? '닫기' : '+ 새 프로젝트'}
+          </button>
+        </div>
+
+        {composing && (
+          <ProjectComposer
+            onCreated={() => {
+              setComposing(false)
+            }}
+          />
+        )}
+
+        {projects.length === 0 ? (
+          <p className="empty">프로젝트가 없습니다.</p>
+        ) : (
+          <ul className="project-list">
+            {projects.map((project) => (
+              <ProjectCard
+                key={project.id}
+                project={project}
+                boundaryHour={boundaryHour}
+                today={app.today}
+                onOpen={() => setOpenId(project.id)}
+              />
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   )
 }
@@ -71,15 +122,65 @@ function byDue(a: Todo, b: Todo): number {
   return a.dueAt.localeCompare(b.dueAt)
 }
 
-function TodoComposer() {
+function ProjectCard({
+  project,
+  boundaryHour,
+  today,
+  onOpen,
+}: {
+  project: Project
+  boundaryHour: number
+  today: string
+  onOpen(): void
+}) {
   const app = useApp()
+  const progress = projectProgress(app.snapshot, project)
+  const due = project.dueAt ? logicalDay(project.dueAt, boundaryHour) : null
+  const remaining = due ? daysBetween(due, today) : null
+  const overdue = remaining !== null && remaining < 0 && project.status !== 'done'
+
+  const classes = ['project-card']
+  if (project.status === 'held') classes.push('project-card--held')
+  if (project.status === 'done') classes.push('project-card--done')
+  if (overdue) classes.push('project-card--overdue')
+
+  return (
+    <li>
+      <button type="button" className={classes.join(' ')} onClick={onOpen}>
+        <span className="project-card__head">
+          <span className="project-name">{project.name}</span>
+          <span className="project-count">
+            {progress.done}/{progress.total}
+          </span>
+        </span>
+        <span className="project-bar">
+          <span className="project-bar__fill" style={{ width: `${progress.percent}%` }} />
+        </span>
+        {due && (
+          <span className="todo-due">
+            {due}
+            {remaining !== null && project.status !== 'done' && (
+              <span className={overdue ? 'dday-chip dday-chip--past' : 'dday-chip'}>
+                {formatRemaining(remaining)}
+              </span>
+            )}
+            <AlertChips dueAt={project.dueAt} />
+          </span>
+        )}
+      </button>
+    </li>
+  )
+}
+
+function TodoComposer() {
+  const todoApi = useTodos()
   const [title, setTitle] = useState('')
   const [due, setDue] = useState('')
   const [pinned, setPinned] = useState(false)
 
   const submit = () => {
     if (!title.trim()) return
-    void app.addTodo({
+    void todoApi.addTodo({
       title,
       dueAt: due ? new Date(`${due}T12:00:00`).toISOString() : undefined,
       pinned,
@@ -139,7 +240,7 @@ function TodoRow({
   boundaryHour: number
   today: string
 }) {
-  const app = useApp()
+  const todoApi = useTodos()
   const due = dueDayOf(todo, boundaryHour)
   const remaining = due ? daysBetween(due, today) : null
   const overdue = remaining !== null && remaining < 0 && todo.status !== 'done'
@@ -149,7 +250,7 @@ function TodoRow({
       <button
         type="button"
         className={todo.status === 'done' ? 'check check--on' : 'check'}
-        onClick={() => void app.setTodoStatus(todo, todo.status === 'done' ? 'todo' : 'done')}
+        onClick={() => void todoApi.setTodoStatus(todo, todo.status === 'done' ? 'todo' : 'done')}
         aria-pressed={todo.status === 'done'}
         aria-label={`${todo.title} 완료 토글`}
       />
@@ -165,13 +266,14 @@ function TodoRow({
                 {formatRemaining(remaining)}
               </span>
             )}
+            <AlertChips dueAt={todo.dueAt} />
           </span>
         )}
       </div>
       <button
         type="button"
         className={todo.pinned ? 'pin pin--on' : 'pin'}
-        onClick={() => void app.editTodo(todo, { pinned: !todo.pinned })}
+        onClick={() => void todoApi.editTodo(todo, { pinned: !todo.pinned })}
         aria-pressed={todo.pinned}
         aria-label="D-day 고정"
         disabled={!todo.dueAt}
@@ -182,7 +284,7 @@ function TodoRow({
       <button
         type="button"
         className="icon-btn icon-btn--danger"
-        onClick={() => void app.removeTodo(todo)}
+        onClick={() => void todoApi.removeTodo(todo)}
         aria-label={`${todo.title} 삭제`}
       >
         ×

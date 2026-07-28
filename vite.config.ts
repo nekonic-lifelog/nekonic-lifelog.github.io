@@ -9,22 +9,19 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const BASE_CSP = [
   "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
-  "connect-src 'self'",
+  "media-src 'self' blob:",
   "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
 ]
 
-const APP_CSP = [...BASE_CSP, "script-src 'self'"].join('; ')
+const APP_CSP = [...BASE_CSP, "connect-src 'self' https://api.github.com"].join('; ')
 
-const CHECK_CSP = [
-  ...BASE_CSP,
-  "script-src 'self' 'wasm-unsafe-eval'",
-  "media-src 'self' blob:",
-].join('; ')
+const CHECK_CSP = [...BASE_CSP, "connect-src 'self'"].join('; ')
 
 function cspMeta(): Plugin {
   return {

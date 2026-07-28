@@ -1,0 +1,134 @@
+.book-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.book-tab {
+  flex: 1;
+  padding: 8px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.book-tab--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.book-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.book-card__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.book-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.book-author {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.book-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.book-bar__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 160ms ease-out;
+}
+
+.book-pages {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.book-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.book-sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.book-session {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.book-session__day {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.book-session__delta {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.book-session__note {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.book-stars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.book-star {
+  border: 0;
+  background: none;
+  padding: 2px 4px;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--line);
+  cursor: pointer;
+}
+
+.book-star--on {
+  color: var(--accent);
+}
+
+.book-stars .hint {
+  margin-left: 6px;
+}

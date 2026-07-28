@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { navigate, type Route } from '../lib/router'
 import { isIOS, useStandalone } from '../lib/platform'
+import { useSyncOptional } from '../state/sync'
 import type { SwUpdate } from '../lib/sw'
 
 const TABS: { route: Route; label: string }[] = [
@@ -29,15 +31,26 @@ export function TabBar({ route }: { route: Route }) {
 
 export function InstallBanner() {
   const standalone = useStandalone()
+  const sync = useSyncOptional()
+  const [dismissed, setDismissed] = useState(false)
+  const backedUp = sync?.connected === true
+
   if (standalone || !isIOS()) return null
+  if (backedUp && dismissed) return null
 
   return (
-    <div className="banner banner--blocking" role="alert">
+    <div className={backedUp ? 'banner banner--info' : 'banner banner--blocking'} role="alert">
       <strong>홈 화면에 추가하지 않으면 데이터가 지워집니다.</strong>
       <span>
-        iOS는 7일간 방문이 없으면 이 앱의 저장소를 삭제합니다. 지금은 백업이 JSON
-        내보내기뿐이라 곧 손실입니다. 공유 버튼 → 홈 화면에 추가.
+        {backedUp
+          ? 'iOS는 7일간 방문이 없으면 이 앱의 저장소를 삭제합니다. 원본은 저장소에 있으니 다시 이으면 되지만, 그때마다 기기 연결을 새로 해야 합니다. 공유 버튼 → 홈 화면에 추가.'
+          : 'iOS는 7일간 방문이 없으면 이 앱의 저장소를 삭제합니다. 지금은 백업이 JSON 내보내기뿐이라 곧 손실입니다. 공유 버튼 → 홈 화면에 추가.'}
       </span>
+      {backedUp && (
+        <button type="button" onClick={() => setDismissed(true)}>
+          닫기
+        </button>
+      )}
     </div>
   )
 }

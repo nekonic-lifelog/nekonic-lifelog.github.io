@@ -3,8 +3,20 @@ import { newId } from '../lib/ids'
 import type { RowTypes, Snapshot, Store, TableName } from './store'
 
 const DB_NAME = 'lifelog'
-const DB_VERSION = 1
-const TABLES: TableName[] = ['definitions', 'records', 'todos']
+const DB_VERSION = 2
+const TABLES: TableName[] = [
+  'definitions',
+  'records',
+  'todos',
+  'projects',
+  'books',
+  'journal',
+]
+const INDEXES: Partial<Record<TableName, string[]>> = {
+  records: ['defId'],
+  books: ['defId'],
+  journal: ['projectId'],
+}
 const META = 'meta'
 
 function promisify<T>(req: IDBRequest<T>): Promise<T> {
@@ -42,7 +54,9 @@ function open(): Promise<IDBDatabase> {
       for (const table of TABLES) {
         if (!db.objectStoreNames.contains(table)) {
           const os = db.createObjectStore(table, { keyPath: 'id' })
-          if (table === 'records') os.createIndex('defId', 'defId', { unique: false })
+          for (const name of INDEXES[table] ?? []) {
+            os.createIndex(name, name, { unique: false })
+          }
         }
       }
       if (!db.objectStoreNames.contains(META)) {
@@ -92,22 +106,39 @@ export class IdbStore implements Store {
     return fresh
   }
 
+  async adoptDeviceId(id: string): Promise<void> {
+    const trimmed = id.trim()
+    if (trimmed === '') throw new Error('기기 ID가 비어 있습니다')
+    const db = await this.#open()
+    const tx = db.transaction(META, 'readwrite')
+    tx.objectStore(META).put({ key: 'deviceId', value: trimmed })
+    await done(tx)
+    this.#deviceId = trimmed
+  }
+
   async loadAll(): Promise<Snapshot> {
     const db = await this.#open()
     const tx = db.transaction([...TABLES, META], 'readonly')
-    const [definitions, records, todos, settings] = await Promise.all([
-      promisify(tx.objectStore('definitions').getAll()),
-      promisify(tx.objectStore('records').getAll()),
-      promisify(tx.objectStore('todos').getAll()),
-      promisify<{ key: string; value: Settings } | undefined>(
-        tx.objectStore(META).get('settings'),
-      ),
-    ])
+    const [definitions, records, todos, projects, books, journal, settings] =
+      await Promise.all([
+        promisify(tx.objectStore('definitions').getAll()),
+        promisify(tx.objectStore('records').getAll()),
+        promisify(tx.objectStore('todos').getAll()),
+        promisify(tx.objectStore('projects').getAll()),
+        promisify(tx.objectStore('books').getAll()),
+        promisify(tx.objectStore('journal').getAll()),
+        promisify<{ key: string; value: Settings } | undefined>(
+          tx.objectStore(META).get('settings'),
+        ),
+      ])
     await done(tx)
     return {
       definitions,
       records,
       todos,
+      projects,
+      books,
+      journal,
       settings: { ...DEFAULT_SETTINGS, ...(settings?.value ?? {}) },
     }
   }
@@ -134,9 +165,10 @@ export class IdbStore implements Store {
     const tx = db.transaction([...TABLES, META], 'readwrite')
     await writeAtomically(tx, () => {
       for (const table of TABLES) tx.objectStore(table).clear()
-      for (const row of snapshot.definitions) tx.objectStore('definitions').put(row)
-      for (const row of snapshot.records) tx.objectStore('records').put(row)
-      for (const row of snapshot.todos) tx.objectStore('todos').put(row)
+      for (const table of TABLES) {
+        const os = tx.objectStore(table)
+        for (const row of snapshot[table]) os.put(row)
+      }
       tx.objectStore(META).put({ key: 'settings', value: snapshot.settings })
     })
   }

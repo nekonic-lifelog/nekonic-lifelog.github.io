@@ -3,7 +3,14 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { IdbStore } from '../src/data/idb'
 import type { Snapshot } from '../src/data/store'
 import { DEFAULT_SETTINGS } from '../src/lib/types'
-import { dailyRecords, makeDef, resetIds } from './factories'
+import {
+  dailyRecords,
+  makeBook,
+  makeDef,
+  makeJournal,
+  makeProject,
+  resetIds,
+} from './factories'
 
 const opened: IdbStore[] = []
 
@@ -22,6 +29,28 @@ async function freshStore(): Promise<IdbStore> {
     req.onblocked = () => reject(new Error('deleteDatabase가 blocked 되었습니다'))
   })
   return track(new IdbStore())
+}
+
+function openRaw(
+  version: number,
+  upgrade?: (db: IDBDatabase) => void,
+): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('lifelog', version)
+    if (upgrade) req.onupgradeneeded = () => upgrade(req.result)
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+    req.onblocked = () => reject(new Error('open이 blocked 되었습니다'))
+  })
+}
+
+function putRaw(db: IDBDatabase, storeName: string, row: unknown): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite')
+    tx.objectStore(storeName).put(row)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
 }
 
 beforeEach(resetIds)
@@ -49,6 +78,9 @@ describe('읽고 쓰기', () => {
       definitions: [],
       records: [],
       todos: [],
+      projects: [],
+      books: [],
+      journal: [],
       settings: DEFAULT_SETTINGS,
     })
   })
@@ -88,6 +120,113 @@ describe('읽고 쓰기', () => {
   })
 })
 
+describe('프로젝트 · 독서 · 기록 테이블', () => {
+  it('세 테이블도 쓴 것을 그대로 읽는다', async () => {
+    const store = await freshStore()
+    const project = makeProject({ name: '이사' })
+    const book = makeBook({ title: '토지', defId: 'def-book' })
+    const journal = makeJournal({ body: '첫 줄' })
+
+    await store.put('projects', [project])
+    await store.put('books', [book])
+    await store.put('journal', [journal])
+
+    const snapshot = await store.loadAll()
+    expect(snapshot.projects).toEqual([project])
+    expect(snapshot.books).toEqual([book])
+    expect(snapshot.journal).toEqual([journal])
+  })
+
+  it('같은 날 여러 건의 기록을 나란히 담는다', async () => {
+    const store = await freshStore()
+    await store.put('journal', [
+      makeJournal({ at: '2026-03-11T09:00:00+09:00', body: '아침' }),
+      makeJournal({ at: '2026-03-11T21:00:00+09:00', kind: 'memo', body: '밤' }),
+    ])
+    const snapshot = await store.loadAll()
+    expect(snapshot.journal).toHaveLength(2)
+  })
+
+  it('journal은 projectId로, books는 defId로 찾을 수 있다', async () => {
+    const store = await freshStore()
+    await store.put('journal', [makeJournal({ projectId: 'p-1' })])
+    await store.put('books', [makeBook({ defId: 'd-1' })])
+
+    const db = await openRaw(2)
+    try {
+      const tx = db.transaction(['journal', 'books'], 'readonly')
+      const byProject = await new Promise<unknown[]>((resolve, reject) => {
+        const req = tx.objectStore('journal').index('projectId').getAll('p-1')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const byDef = await new Promise<unknown[]>((resolve, reject) => {
+        const req = tx.objectStore('books').index('defId').getAll('d-1')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      expect(byProject).toHaveLength(1)
+      expect(byDef).toHaveLength(1)
+    } finally {
+      db.close()
+    }
+  })
+})
+
+describe('스키마 올리기', () => {
+  it('옛 DB를 열어도 기존 행이 남고 새 테이블은 비어 있다', async () => {
+    const store = await freshStore()
+    const def = makeDef({ name: '지켜져야 할 것' })
+
+    const old = await openRaw(1, (db) => {
+      for (const table of ['definitions', 'records', 'todos']) {
+        db.createObjectStore(table, { keyPath: 'id' })
+      }
+      db.createObjectStore('meta', { keyPath: 'key' })
+    })
+    expect(old.version).toBe(1)
+    await putRaw(old, 'definitions', def)
+    await putRaw(old, 'meta', { key: 'deviceId', value: 'old-device' })
+    old.close()
+
+    const snapshot = await store.loadAll()
+    expect(snapshot.definitions).toEqual([def])
+    expect(snapshot.projects).toEqual([])
+    expect(snapshot.books).toEqual([])
+    expect(snapshot.journal).toEqual([])
+    expect(await store.deviceId()).toBe('old-device')
+  })
+
+  it('올린 뒤에는 새 테이블에 바로 쓸 수 있다', async () => {
+    const store = await freshStore()
+    const old = await openRaw(1, (db) => {
+      for (const table of ['definitions', 'records', 'todos']) {
+        db.createObjectStore(table, { keyPath: 'id' })
+      }
+      db.createObjectStore('meta', { keyPath: 'key' })
+    })
+    await putRaw(old, 'todos', {
+      id: 't-1',
+      v: 1,
+      createdAt: '2026-03-01T12:00:00+09:00',
+      deviceId: 'old-device',
+      updatedAt: '2026-03-01T12:00:00+09:00',
+      deleted: false,
+      title: '옛 할 일',
+      status: 'todo',
+      pinned: false,
+    })
+    old.close()
+
+    await store.put('projects', [makeProject({ name: '새 프로젝트' })])
+
+    const snapshot = await store.loadAll()
+    expect(snapshot.todos).toHaveLength(1)
+    expect(snapshot.projects).toHaveLength(1)
+    expect(snapshot.projects[0]!.name).toBe('새 프로젝트')
+  })
+})
+
 describe('replaceAll — 불러오기', () => {
   const incoming = (): Snapshot => {
     const def = makeDef({ name: '물' })
@@ -95,6 +234,9 @@ describe('replaceAll — 불러오기', () => {
       definitions: [def],
       records: dailyRecords(def.id, ['2026-03-11']),
       todos: [],
+      projects: [makeProject()],
+      books: [],
+      journal: [makeJournal()],
       settings: { dayBoundaryHour: 6 },
     }
   }
@@ -113,6 +255,21 @@ describe('replaceAll — 불러오기', () => {
     expect(snapshot.definitions[0]!.name).toBe('물')
     expect(snapshot.records).toHaveLength(1)
     expect(snapshot.settings.dayBoundaryHour).toBe(6)
+  })
+
+  it('새 세 테이블도 함께 갈아끼운다', async () => {
+    const store = await freshStore()
+    await store.put('projects', [makeProject({ name: '지워질 것' })])
+    await store.put('books', [makeBook({ title: '지워질 책' })])
+    await store.put('journal', [makeJournal({ body: '지워질 기록' })])
+
+    await store.replaceAll(incoming())
+
+    const snapshot = await store.loadAll()
+    expect(snapshot.projects).toHaveLength(1)
+    expect(snapshot.projects[0]!.name).toBe('이사 준비')
+    expect(snapshot.books).toEqual([])
+    expect(snapshot.journal).toHaveLength(1)
   })
 
   it('deviceId는 이 기기의 것을 유지한다', async () => {

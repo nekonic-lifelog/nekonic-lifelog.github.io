@@ -4,7 +4,11 @@ import { weekdayLabel } from '../lib/day'
 import { managedDefinitions } from '../lib/select'
 import { effectiveTarget } from '../lib/streak'
 import type { Definition, DefinitionKind } from '../lib/types'
-import { useApp, type NewDefinition } from '../state/app'
+import { useApp } from '../state/app'
+import { useHabits, type NewDefinition } from '../state/habits'
+import { presetDefinitionInput, type DefinitionPreset } from '../lib/presets'
+import { PresetPicker } from '../ui/PresetPicker'
+import { SyncSettings } from './SyncSettings'
 
 export function Settings() {
   const app = useApp()
@@ -12,6 +16,7 @@ export function Settings() {
   return (
     <div className="screen">
       <h1 className="screen__title">설정</h1>
+      <SyncSettings />
       <BackupSection />
       <DefinitionsSection />
       <DayBoundarySection />
@@ -104,11 +109,21 @@ function BackupSection() {
 
 function DefinitionsSection() {
   const app = useApp()
+  const habits = useHabits()
   const defs = useMemo(() => managedDefinitions(app.snapshot), [app.snapshot])
+  const existingNames = useMemo(
+    () => app.snapshot.definitions.filter((d) => !d.deleted).map((d) => d.name),
+    [app.snapshot.definitions],
+  )
+
+  const addPreset = async (preset: DefinitionPreset) => {
+    await habits.addDefinition(presetDefinitionInput(preset))
+  }
 
   return (
     <section className="card">
       <h2>습관 정의</h2>
+      <PresetPicker existingNames={existingNames} onAdd={addPreset} />
       <DefinitionComposer />
       {defs.length === 0 ? (
         <p className="empty">아직 정의가 없습니다.</p>
@@ -126,7 +141,7 @@ function DefinitionsSection() {
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6]
 
 function DefinitionComposer() {
-  const app = useApp()
+  const habits = useHabits()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [kind, setKind] = useState<DefinitionKind>('check')
@@ -152,7 +167,7 @@ function DefinitionComposer() {
       target: kind === 'quantity' && target ? Number(target) : undefined,
       targetDays: days.length > 0 && days.length < 7 ? [...days].sort() : undefined,
     }
-    void app.addDefinition(input)
+    void habits.addDefinition(input)
     reset()
   }
 
@@ -249,6 +264,7 @@ function DefinitionComposer() {
 
 function DefinitionRow({ def }: { def: Definition }) {
   const app = useApp()
+  const habits = useHabits()
   const [editingTarget, setEditingTarget] = useState(false)
   const [next, setNext] = useState('')
   const boundaryHour = app.snapshot.settings.dayBoundaryHour
@@ -256,7 +272,7 @@ function DefinitionRow({ def }: { def: Definition }) {
 
   const saveTarget = () => {
     const parsed = Number(next)
-    if (Number.isFinite(parsed) && parsed > 0) void app.setTarget(def, parsed)
+    if (Number.isFinite(parsed) && parsed > 0) void habits.setTarget(def, parsed)
     setNext('')
     setEditingTarget(false)
   }
@@ -314,7 +330,7 @@ function DefinitionRow({ def }: { def: Definition }) {
         )}
         <button
           type="button"
-          onClick={() => void app.editDefinition(def, { archived: !def.archived })}
+          onClick={() => void habits.editDefinition(def, { archived: !def.archived })}
         >
           {def.archived ? '되돌리기' : '보관'}
         </button>
@@ -323,7 +339,7 @@ function DefinitionRow({ def }: { def: Definition }) {
           className="danger"
           onClick={() => {
             if (window.confirm(`"${def.name}"과 그 기록을 전부 지웁니다. 계속할까요?`)) {
-              void app.removeDefinition(def)
+              void habits.removeDefinition(def)
             }
           }}
         >

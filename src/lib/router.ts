@@ -1,6 +1,16 @@
 import { useSyncExternalStore } from 'react'
 
-export const ROUTES = ['/today', '/todos', '/records', '/stats', '/dday', '/settings'] as const
+export const ROUTES = [
+  '/today',
+  '/todos',
+  '/records',
+  '/stats',
+  '/dday',
+  '/books',
+  '/timer',
+  '/link',
+  '/settings',
+] as const
 export type Route = (typeof ROUTES)[number]
 
 const DEFAULT: Route = '/today'

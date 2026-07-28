@@ -48,6 +48,40 @@ export interface Todo extends Base {
   note?: string | undefined
 }
 
+export type ProjectStatus = 'active' | 'held' | 'done'
+
+export interface Project extends Base {
+  name: string
+  status: ProjectStatus
+  dueAt?: string | undefined
+  order: number
+}
+
+export type BookStatus = 'reading' | 'finished' | 'dropped'
+
+export interface Book extends Base {
+  defId: string
+  title: string
+  author?: string | undefined
+  totalPages?: number | undefined
+  status: BookStatus
+  rating?: number | undefined
+  startedAt?: string | undefined
+  finishedAt?: string | undefined
+  note?: string | undefined
+}
+
+export type JournalKind = 'diary' | 'meeting' | 'memo'
+
+export interface Journal extends Base {
+  kind: JournalKind
+  at: string
+  title?: string | undefined
+  body: string
+  projectId?: string | undefined
+  attendees?: string[] | undefined
+}
+
 export interface Settings {
   dayBoundaryHour: number
 }

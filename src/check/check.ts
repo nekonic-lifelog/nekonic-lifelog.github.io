@@ -101,7 +101,7 @@ function probeKeyDerivation() {
           salt,
           parallelism: 1,
           iterations: 3,
-          memorySize: 65536, // KB = 64MB
+          memorySize: 65536,
           hashLength: 32,
           outputType: 'hex',
         })

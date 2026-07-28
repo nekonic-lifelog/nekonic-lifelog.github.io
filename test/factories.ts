@@ -1,4 +1,12 @@
-import { SCHEMA_VERSION, type Definition, type LogRecord, type TargetPoint } from '../src/lib/types'
+import {
+  SCHEMA_VERSION,
+  type Book,
+  type Definition,
+  type Journal,
+  type LogRecord,
+  type Project,
+  type TargetPoint,
+} from '../src/lib/types'
 
 let seq = 0
 const nextId = () => `id-${++seq}`
@@ -57,6 +65,54 @@ export function makeRecord(
     defId,
     at,
     value,
+    ...overrides,
+  }
+}
+
+export function makeProject(overrides: Partial<Project> = {}): Project {
+  const createdAt = overrides.createdAt ?? '2026-03-01T12:00:00+09:00'
+  return {
+    id: overrides.id ?? nextId(),
+    v: SCHEMA_VERSION,
+    createdAt,
+    deviceId: DEVICE,
+    updatedAt: createdAt,
+    deleted: false,
+    name: '이사 준비',
+    status: 'active',
+    order: 0,
+    ...overrides,
+  }
+}
+
+export function makeBook(overrides: Partial<Book> = {}): Book {
+  const createdAt = overrides.createdAt ?? '2026-03-01T12:00:00+09:00'
+  return {
+    id: overrides.id ?? nextId(),
+    v: SCHEMA_VERSION,
+    createdAt,
+    deviceId: DEVICE,
+    updatedAt: createdAt,
+    deleted: false,
+    defId: overrides.defId ?? nextId(),
+    title: '토지',
+    status: 'reading',
+    ...overrides,
+  }
+}
+
+export function makeJournal(overrides: Partial<Journal> = {}): Journal {
+  const createdAt = overrides.createdAt ?? '2026-03-01T12:00:00+09:00'
+  return {
+    id: overrides.id ?? nextId(),
+    v: SCHEMA_VERSION,
+    createdAt,
+    deviceId: DEVICE,
+    updatedAt: createdAt,
+    deleted: false,
+    kind: 'diary',
+    at: overrides.at ?? createdAt,
+    body: '오늘은 비가 왔다.',
     ...overrides,
   }
 }

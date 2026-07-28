@@ -1,0 +1,61 @@
+.timer-card {
+  align-items: center;
+  gap: 8px;
+}
+
+.timer-display {
+  font-size: clamp(48px, 18vw, 84px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  padding: 8px 0 0;
+}
+
+.timer-card--done .timer-display {
+  color: var(--accent);
+}
+
+.timer-phase {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.timer-controls {
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.timer-primary {
+  min-width: 108px;
+  font-weight: 600;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.timer-presets {
+  gap: 6px;
+}
+
+.timer-preset {
+  min-height: 36px;
+  padding: 4px 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.timer-preset--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.timer-custom .field input {
+  width: 68px;
+}
+
+.timer-custom button[type='submit'] {
+  margin-left: auto;
+  min-height: 36px;
+  padding: 4px 12px;
+}

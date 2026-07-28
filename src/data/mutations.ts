@@ -19,12 +19,17 @@ export function createBase(ctx: WriteCtx): Base {
   }
 }
 
+function nextUpdatedAt(previous: string, now: number): string {
+  const prev = Date.parse(previous)
+  return new Date(Number.isFinite(prev) && now < prev ? prev : now).toISOString()
+}
+
 export function touch<T extends Base>(row: T, ctx: WriteCtx): T {
   return {
     ...row,
     v: SCHEMA_VERSION,
     deviceId: ctx.deviceId,
-    updatedAt: new Date(ctx.clock.now()).toISOString(),
+    updatedAt: nextUpdatedAt(row.updatedAt, ctx.clock.now()),
   }
 }
 

@@ -1,6 +1,7 @@
 # lifelog
 
-개인용 기록·관리 도구. 습관 체크와 할 일을 로컬에 저장한다.
+개인용 기록·관리 도구. 습관·할 일·일기·회의록·독서·프로젝트를 로컬에 저장하고,
+개인 저장소에 암호화해 기기 사이를 잇는다.
 
 ## 개발
 
@@ -26,17 +27,25 @@ npm run build
 ## 구조
 
 ```
-src/lib/        clock · day · streak · backup · select
+src/lib/        clock · day · streak · stats · timer · backup · presets · select*
 src/data/       store(인터페이스) · idb(구현) · mutations
-src/state/      AppProvider
-src/screens/    Today · Todos · DDay · Settings · Placeholder
-src/ui/         TabBar · InstallBanner · UpdateBanner
+src/crypto/     kdf · cipher · envelope
+src/remote/     github(REST 클라이언트)
+src/sync/       paths · merge · engine · credentials
+src/link/       payload · qr · camera
+src/state/      AppProvider · habits · todos · journal · books · projects · sync
+src/screens/    Today · Todos · Projects · Records · JournalEdit · Books
+                Stats · DDay · Timer · Link · Settings
+src/ui/         TabBar · 배너 · SyncStatus · PresetPicker
 src/check/      환경 점검 페이지 (별도 진입점)
-test/           streak · backup · store · app
+test/           위 각 모듈에 대응
 ```
 
 데이터 접근은 `src/data/store.ts`의 인터페이스 뒤에 있다.
 저장 방식을 바꿀 때는 구현체만 갈아끼운다.
+
+병합과 경로 규칙은 `test/merge.test.ts`의 property test가 정의한다.
+GitHub API는 전부 목킹한 계약 테스트로만 검증한다 — 실제 토큰은 테스트에 넣지 않는다.
 
 동작 규칙은 `test/`가 정의한다. 고치기 전에 해당 테스트를 먼저 읽는 편이 빠르다.
 

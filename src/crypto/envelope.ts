@@ -71,9 +71,7 @@ async function unwrapWith(
 
 export interface OpenedEnvelope {
   envelope: Envelope
-  /** 암·복호화에 쓰는 핸들. 꺼낼 수 없다 */
   dataKey: CryptoKey
-  /** 기기 연결용. 필요할 때만 들고 있는다 */
   raw: Uint8Array<ArrayBuffer>
 }
 
@@ -106,10 +104,6 @@ export async function openEnvelope(
   throw new EnvelopeError('암호구절이 맞지 않습니다.')
 }
 
-/**
- * 새 항목을 먼저 더하고, 확인한 뒤에 옛 항목을 지운다.
- * 중간에 실패해도 잠기지 않는다.
- */
 export async function addPassphrase(
   envelope: Envelope,
   raw: Uint8Array,

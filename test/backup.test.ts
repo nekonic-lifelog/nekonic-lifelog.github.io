@@ -3,7 +3,14 @@ import { BackupError, buildBackup, parseBackup, serializeBackup } from '../src/l
 import { fixedClock } from '../src/lib/clock'
 import { DEFAULT_SETTINGS, SCHEMA_VERSION } from '../src/lib/types'
 import type { Snapshot } from '../src/data/store'
-import { dailyRecords, makeDef, resetIds } from './factories'
+import {
+  dailyRecords,
+  makeBook,
+  makeDef,
+  makeJournal,
+  makeProject,
+  resetIds,
+} from './factories'
 
 const clock = fixedClock('2026-03-12T20:00:00+09:00')
 
@@ -13,6 +20,9 @@ function sampleSnapshot(): Snapshot {
     definitions: [def],
     records: dailyRecords(def.id, ['2026-03-10', '2026-03-11']),
     todos: [],
+    projects: [makeProject()],
+    books: [makeBook()],
+    journal: [makeJournal()],
     settings: { dayBoundaryHour: 4 },
   }
 }
@@ -105,5 +115,70 @@ describe('불러오기 — 형식 검사', () => {
       data: { definitions: [], records: [], todos: [], settings: { dayBoundaryHour: 6 } },
     })
     expect(parseBackup(raw).data.settings.dayBoundaryHour).toBe(6)
+  })
+})
+
+describe('불러오기 — 옛 백업 파일', () => {
+  const old = () =>
+    JSON.stringify({
+      v: 1,
+      exportedAt: '2026-03-12T11:00:00.000Z',
+      data: { definitions: [], records: [], todos: [], settings: { dayBoundaryHour: 5 } },
+    })
+
+  it('projects · books · journal이 없으면 빈 배열로 채운다', () => {
+    const parsed = parseBackup(old())
+    expect(parsed.data.projects).toEqual([])
+    expect(parsed.data.books).toEqual([])
+    expect(parsed.data.journal).toEqual([])
+  })
+
+  it('없다고 해서 거부하지 않는다 — 나머지는 그대로 산다', () => {
+    const parsed = parseBackup(old())
+    expect(parsed.data.settings.dayBoundaryHour).toBe(5)
+  })
+
+  it('null로 적혀 있어도 빈 배열로 본다', () => {
+    const raw = JSON.stringify({
+      v: 1,
+      data: { definitions: [], records: [], todos: [], projects: null, books: null, journal: null },
+    })
+    expect(parseBackup(raw).data.projects).toEqual([])
+  })
+
+  it('있는데 배열이 아니면 거부한다', () => {
+    const raw = JSON.stringify({
+      v: 1,
+      data: { definitions: [], records: [], todos: [], journal: '기록' },
+    })
+    expect(() => parseBackup(raw)).toThrow(/journal 배열이 없습니다/)
+  })
+
+  it('새 테이블에서도 id 없는 행이면 위치를 알려준다', () => {
+    const raw = JSON.stringify({
+      v: 1,
+      data: {
+        definitions: [],
+        records: [],
+        todos: [],
+        books: [{ id: 'b1' }, { title: 'id가 없다' }],
+      },
+    })
+    expect(() => parseBackup(raw)).toThrow(/books\[1\]/)
+  })
+})
+
+describe('내보내기 — 새 테이블', () => {
+  it('세 테이블을 함께 실어 보내고 그대로 되읽는다', () => {
+    const snapshot = sampleSnapshot()
+    const file = buildBackup(snapshot, clock)
+    expect(file.data.projects).toHaveLength(1)
+    expect(file.data.books).toHaveLength(1)
+    expect(file.data.journal).toHaveLength(1)
+
+    const parsed = parseBackup(serializeBackup(snapshot, clock))
+    expect(parsed.data.journal).toEqual(snapshot.journal)
+    expect(parsed.data.books).toEqual(snapshot.books)
+    expect(parsed.data.projects).toEqual(snapshot.projects)
   })
 })

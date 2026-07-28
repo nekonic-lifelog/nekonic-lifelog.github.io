@@ -44,6 +44,14 @@ function requireRows(data: Record<string, unknown>, key: string): Record<string,
   return rows as Record<string, unknown>[]
 }
 
+function optionalRows(
+  data: Record<string, unknown>,
+  key: string,
+): Record<string, unknown>[] {
+  if (data[key] === undefined || data[key] === null) return []
+  return requireRows(data, key)
+}
+
 export function parseBackup(text: string): BackupFile {
   let raw: unknown
   try {
@@ -69,6 +77,9 @@ export function parseBackup(text: string): BackupFile {
   requireRows(data, 'definitions')
   requireRows(data, 'records')
   requireRows(data, 'todos')
+  const projects = optionalRows(data, 'projects')
+  const books = optionalRows(data, 'books')
+  const journal = optionalRows(data, 'journal')
 
   const settings = isObject(data['settings']) ? data['settings'] : {}
   const file: BackupFile = {
@@ -78,6 +89,9 @@ export function parseBackup(text: string): BackupFile {
       definitions: data['definitions'] as Snapshot['definitions'],
       records: data['records'] as Snapshot['records'],
       todos: data['todos'] as Snapshot['todos'],
+      projects: projects as unknown as Snapshot['projects'],
+      books: books as unknown as Snapshot['books'],
+      journal: journal as unknown as Snapshot['journal'],
       settings: { ...DEFAULT_SETTINGS, ...(settings as Partial<Settings>) },
     },
   }
