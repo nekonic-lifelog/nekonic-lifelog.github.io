@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { RowTypes, Snapshot, Store, TableName } from '../src/data/store'
 import { fixedClock } from '../src/lib/clock'
@@ -418,17 +418,30 @@ describe('마감 시각 보여주기', () => {
 describe('알림 칩', () => {
   const dueAt = toDueAt('2026-08-03', '14:00')
 
-  it('설정에 담긴 오프셋만 그린다', async () => {
+  it('오프셋이 몇 개든 표시는 하나뿐이다', async () => {
+    mountScreen({
+      todos: [makeTodo({ id: 't1', title: '병원 예약', dueAt })],
+      settings: withSettings({ defaultOffsets: [2880, 1440, 120, 60] }),
+    })
+
+    const chips = await screen.findAllByLabelText(/알림 예정/)
+    expect(chips).toHaveLength(1)
+    expect(chips[0]?.textContent).toBe('알림 4')
+  })
+
+  it('설정에 담긴 오프셋만 라벨에 담는다', async () => {
     mountScreen({
       todos: [makeTodo({ id: 't1', title: '병원 예약', dueAt })],
       settings: withSettings({ defaultOffsets: [1440, 60] }),
     })
 
-    const chips = await screen.findByLabelText('알림 예정')
-    expect(within(chips).getByText('24h')).toBeTruthy()
-    expect(within(chips).getByText('1h')).toBeTruthy()
-    expect(within(chips).queryByText('48h')).toBeNull()
-    expect(within(chips).queryByText('2h')).toBeNull()
+    const chip = await screen.findByLabelText(/알림 예정/)
+    expect(chip.textContent).toBe('알림 2')
+    const label = chip.getAttribute('aria-label') ?? ''
+    expect(label).toContain('2026-08-02 14:00')
+    expect(label).toContain('2026-08-03 13:00')
+    expect(label).not.toContain('2026-08-01 14:00')
+    expect(label).not.toContain('2026-08-03 12:00')
   })
 
   it('오프셋이 비면 칩을 그리지 않는다', async () => {
@@ -438,7 +451,7 @@ describe('알림 칩', () => {
     })
 
     await screen.findByText('2026-08-03 14:00')
-    expect(screen.queryByLabelText('알림 예정')).toBeNull()
+    expect(screen.queryByLabelText(/알림 예정/)).toBeNull()
   })
 
   it('한 시간이 안 되는 오프셋은 분으로, 어중간한 값은 시간으로 적는다', async () => {
@@ -447,9 +460,9 @@ describe('알림 칩', () => {
       settings: withSettings({ defaultOffsets: [90, 30] }),
     })
 
-    const chips = await screen.findByLabelText('알림 예정')
-    expect(within(chips).getByText('1.5h')).toBeTruthy()
-    expect(within(chips).getByText('30분')).toBeTruthy()
+    const label = (await screen.findByLabelText(/알림 예정/)).getAttribute('aria-label') ?? ''
+    expect(label).toContain('1.5h 전')
+    expect(label).toContain('30분 전')
   })
 
   it('칩이 실제 발송 시각을 알려준다', async () => {
@@ -458,26 +471,49 @@ describe('알림 칩', () => {
       settings: withSettings({ defaultOffsets: [60] }),
     })
 
-    const chips = await screen.findByLabelText('알림 예정')
-    expect(within(chips).getByText('1h').getAttribute('title')).toBe(
-      '2026-08-03 13:00에 알림',
-    )
+    const chip = await screen.findByLabelText(/알림 예정/)
+    expect(chip.getAttribute('title')).toBe('알림 예정 1번: 2026-08-03 13:00 (1h 전)')
+    expect(chip.getAttribute('title')).toBe(chip.getAttribute('aria-label'))
   })
 
-  it('큰 오프셋부터 늘어놓고 겹치는 값은 한 번만 그린다', async () => {
+  it('큰 오프셋부터 늘어놓고 겹치는 값은 한 번만 적는다', async () => {
     mountScreen({
       todos: [makeTodo({ id: 't1', title: '병원 예약', dueAt })],
       settings: withSettings({ defaultOffsets: [60, 1440, 60, 0, -5] }),
     })
 
-    const chips = await screen.findByLabelText('알림 예정')
-    expect(chips.textContent).toBe('24h1h')
+    const chip = await screen.findByLabelText(/알림 예정/)
+    expect(chip.getAttribute('aria-label')).toBe(
+      '알림 예정 2번: 2026-08-02 14:00 (24h 전), 2026-08-03 13:00 (1h 전)',
+    )
   })
 
   it('기한이 없으면 칩도 없다', async () => {
     mountScreen({ todos: [makeTodo({ id: 't1', title: '언젠가' })] })
 
     await screen.findByText('기한 없음')
-    expect(screen.queryByLabelText('알림 예정')).toBeNull()
+    expect(screen.queryByLabelText(/알림 예정/)).toBeNull()
+  })
+
+  it('기한이 이미 지났으면 칩을 그리지 않는다', async () => {
+    mountScreen({
+      todos: [
+        makeTodo({ id: 't1', title: '지난 약속', dueAt: toDueAt('2026-03-01', '10:00') }),
+      ],
+    })
+
+    await screen.findByText('2026-03-01 10:00')
+    expect(screen.queryByLabelText(/알림 예정/)).toBeNull()
+  })
+
+  it('완료한 항목에는 칩을 그리지 않는다', async () => {
+    const user = userEvent.setup()
+    mountScreen({
+      todos: [makeTodo({ id: 't1', title: '병원 예약', status: 'done', dueAt })],
+    })
+
+    await user.click(await screen.findByRole('button', { name: /완료 1건/ }))
+    expect(await screen.findByText('2026-08-03 14:00')).toBeTruthy()
+    expect(screen.queryByLabelText(/알림 예정/)).toBeNull()
   })
 })

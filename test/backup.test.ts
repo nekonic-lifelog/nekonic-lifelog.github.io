@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { BackupError, buildBackup, parseBackup, serializeBackup } from '../src/lib/backup'
 import { fixedClock } from '../src/lib/clock'
+import {
+  checklistProgress,
+  noteSummary,
+  projectChecklist,
+} from '../src/lib/selectProjects'
 import { DEFAULT_SETTINGS, SCHEMA_VERSION } from '../src/lib/types'
 import type { Snapshot } from '../src/data/store'
 import {
@@ -199,6 +204,75 @@ describe('불러오기 — 프로젝트 시작일', () => {
     snapshot.projects = [makeProject({ id: 'p1', startAt: '2026-03-05T03:00:00.000Z' })]
     const parsed = parseBackup(serializeBackup(snapshot, clock))
     expect(parsed.data.projects[0]?.startAt).toBe('2026-03-05T03:00:00.000Z')
+  })
+})
+
+describe('불러오기 — 프로젝트 메모와 체크리스트', () => {
+  const withProject = (project: Record<string, unknown>) =>
+    JSON.stringify({
+      v: 1,
+      exportedAt: '2026-03-12T11:00:00.000Z',
+      data: { definitions: [], records: [], todos: [], projects: [project] },
+    })
+
+  const bare = {
+    id: 'p1',
+    v: 1,
+    createdAt: '2026-03-01T03:00:00.000Z',
+    deviceId: 'old',
+    updatedAt: '2026-03-01T03:00:00.000Z',
+    deleted: false,
+    name: '이사 준비',
+    status: 'active',
+    order: 0,
+  }
+
+  it('두 필드가 없는 옛 백업도 오류 없이 읽힌다', () => {
+    const parsed = parseBackup(withProject(bare))
+    const project = parsed.data.projects[0]
+    expect(project?.name).toBe('이사 준비')
+    expect(project?.note).toBeUndefined()
+    expect(project?.checklist).toBeUndefined()
+    expect(checklistProgress(project!)).toEqual({ done: 0, total: 0 })
+    expect(projectChecklist(project!)).toEqual([])
+    expect(noteSummary(project!)).toBe('')
+  })
+
+  it('메모와 체크리스트가 있으면 순서까지 그대로 실려 온다', () => {
+    const snapshot = sampleSnapshot()
+    snapshot.projects = [
+      makeProject({
+        id: 'p1',
+        note: '견적 3곳\n둘째 줄',
+        checklist: [
+          { id: 'c1', text: '박스', done: true },
+          { id: 'c2', text: '테이프', done: false },
+          { id: 'c3', text: '노끈', done: false },
+        ],
+      }),
+    ]
+
+    const parsed = parseBackup(serializeBackup(snapshot, clock))
+    const project = parsed.data.projects[0]
+    expect(project?.note).toBe('견적 3곳\n둘째 줄')
+    expect(project?.checklist?.map((item) => item.id)).toEqual(['c1', 'c2', 'c3'])
+    expect(checklistProgress(project!)).toEqual({ done: 1, total: 3 })
+    expect(parsed.data.projects).toEqual(snapshot.projects)
+  })
+
+  it('빈 체크리스트도 그대로 남는다', () => {
+    const snapshot = sampleSnapshot()
+    snapshot.projects = [makeProject({ id: 'p1', checklist: [] })]
+
+    const parsed = parseBackup(serializeBackup(snapshot, clock))
+    expect(parsed.data.projects[0]?.checklist).toEqual([])
+  })
+
+  it('체크리스트가 배열이 아닌 손상된 백업도 읽기는 된다', () => {
+    const parsed = parseBackup(withProject({ ...bare, checklist: 'ㅁㄴㅇㄹ', note: 7 }))
+    const project = parsed.data.projects[0]
+    expect(projectChecklist(project!)).toEqual([])
+    expect(noteSummary(project!)).toBe('')
   })
 })
 

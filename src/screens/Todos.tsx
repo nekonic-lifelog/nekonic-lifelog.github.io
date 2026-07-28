@@ -3,7 +3,13 @@ import { daysBetween, logicalDay } from '../lib/day'
 import { formatDueLabel, toDueAt } from '../lib/due'
 import { groupTodosByDue } from '../lib/groupTodos'
 import { dueDayOf, formatRemaining } from '../lib/select'
-import { personalTodos, projectProgress, sortedProjects } from '../lib/selectProjects'
+import {
+  checklistProgress,
+  noteSummary,
+  personalTodos,
+  projectProgress,
+  sortedProjects,
+} from '../lib/selectProjects'
 import type { Project, Todo } from '../lib/types'
 import { useApp } from '../state/app'
 import { useTodos } from '../state/todos'
@@ -148,6 +154,8 @@ function ProjectCard({
 }) {
   const app = useApp()
   const progress = projectProgress(app.snapshot, project)
+  const checks = checklistProgress(project)
+  const summary = noteSummary(project)
   const due = project.dueAt ? logicalDay(project.dueAt, boundaryHour) : null
   const remaining = due ? daysBetween(due, today) : null
   const overdue = remaining !== null && remaining < 0 && project.status !== 'done'
@@ -162,13 +170,24 @@ function ProjectCard({
       <button type="button" className={classes.join(' ')} onClick={onOpen}>
         <span className="project-card__head">
           <span className="project-name">{project.name}</span>
-          <span className="project-count">
-            {progress.done}/{progress.total}
+          <span className="project-card__counts">
+            {checks.total > 0 && (
+              <span
+                className="project-count project-check-count"
+                title={`체크리스트 ${checks.done}/${checks.total}`}
+              >
+                ☑ {checks.done}/{checks.total}
+              </span>
+            )}
+            <span className="project-count" title={`작업 ${progress.done}/${progress.total}`}>
+              작업 {progress.done}/{progress.total}
+            </span>
           </span>
         </span>
         <span className="project-bar">
           <span className="project-bar__fill" style={{ width: `${progress.percent}%` }} />
         </span>
+        {summary !== '' && <span className="project-card__note">{summary}</span>}
         {due && project.dueAt && (
           <span className="todo-due">
             {formatDueLabel(project.dueAt)}
@@ -177,7 +196,7 @@ function ProjectCard({
                 {formatRemaining(remaining)}
               </span>
             )}
-            <AlertChips dueAt={project.dueAt} />
+            <AlertChips dueAt={project.dueAt} done={project.status === 'done'} />
           </span>
         )}
       </button>

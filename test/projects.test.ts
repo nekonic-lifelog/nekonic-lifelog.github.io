@@ -6,8 +6,11 @@ import userEvent from '@testing-library/user-event'
 import type { RowTypes, Snapshot, Store, TableName } from '../src/data/store'
 import { fixedClock } from '../src/lib/clock'
 import {
+  checklistProgress,
   liveProjects,
+  noteSummary,
   personalTodos,
+  projectChecklist,
   projectMeetings,
   projectProgress,
   projectTasks,
@@ -528,7 +531,7 @@ describe('할 일 화면', () => {
     })
 
     const card = await screen.findByRole('button', { name: /이사 준비/ })
-    expect(within(card).getByText('1/2')).toBeTruthy()
+    expect(within(card).getByText('작업 1/2')).toBeTruthy()
   })
 
   it('프로젝트가 없으면 안내를 보여준다', async () => {
@@ -589,21 +592,69 @@ describe('할 일 화면', () => {
       projects: [makeProject({ id: 'p1', name: '이사 준비' })],
     })
 
-    await screen.findByRole('button', { name: /이사 준비/ })
-    expect(screen.queryByLabelText('알림 예정')).toBeNull()
+    await screen.findAllByRole('button', { name: /이사 준비/ })
+    expect(screen.queryByLabelText(/알림 예정/)).toBeNull()
   })
 
-  it('기한이 있으면 알림 오프셋 칩이 붙는다', async () => {
+  it('기한이 있으면 알림 칩 하나가 붙고 라벨에 발송 시각이 들어간다', async () => {
     mountScreen({
       projects: [
         makeProject({ id: 'p1', name: '이사 준비', dueAt: '2026-03-15T12:00:00+09:00' }),
       ],
     })
 
-    const chips = await screen.findByLabelText('알림 예정')
-    for (const label of ['48h', '24h', '2h', '1h']) {
-      expect(within(chips).getByText(label)).toBeTruthy()
+    const chips = await screen.findAllByLabelText(/알림 예정/)
+    expect(chips).toHaveLength(1)
+    expect(chips[0]?.textContent).toBe('알림 4')
+
+    const label = chips[0]?.getAttribute('aria-label') ?? ''
+    for (const at of [
+      '2026-03-13 12:00',
+      '2026-03-14 12:00',
+      '2026-03-15 10:00',
+      '2026-03-15 11:00',
+    ]) {
+      expect(label).toContain(at)
     }
+  })
+
+  it('기한이 지난 프로젝트에는 알림 칩을 그리지 않는다', async () => {
+    mountScreen({
+      projects: [
+        makeProject({ id: 'p1', name: '이사 준비', dueAt: '2026-03-05T12:00:00+09:00' }),
+      ],
+    })
+
+    await screen.findAllByRole('button', { name: /이사 준비/ })
+    expect(screen.queryByLabelText(/알림 예정/)).toBeNull()
+  })
+
+  it('완료한 프로젝트에는 알림 칩을 그리지 않는다', async () => {
+    mountScreen({
+      projects: [
+        makeProject({
+          id: 'p1',
+          name: '이사 준비',
+          status: 'done',
+          dueAt: '2026-03-15T12:00:00+09:00',
+        }),
+      ],
+    })
+
+    await screen.findAllByRole('button', { name: /이사 준비/ })
+    expect(screen.queryByLabelText(/알림 예정/)).toBeNull()
+  })
+
+  it('오프셋이 비면 알림 칩을 그리지 않는다', async () => {
+    mountScreen({
+      projects: [
+        makeProject({ id: 'p1', name: '이사 준비', dueAt: '2026-03-15T12:00:00+09:00' }),
+      ],
+      settings: { ...DEFAULT_SETTINGS, defaultOffsets: [] },
+    })
+
+    await screen.findAllByRole('button', { name: /이사 준비/ })
+    expect(screen.queryByLabelText(/알림 예정/)).toBeNull()
   })
 
   it('새 프로젝트 폼으로 프로젝트를 만든다', async () => {
@@ -615,5 +666,430 @@ describe('할 일 화면', () => {
     await user.click(screen.getByRole('button', { name: '프로젝트 만들기' }))
 
     expect(await screen.findByRole('button', { name: /논문 마무리/ })).toBeTruthy()
+  })
+
+  it('새 프로젝트 폼은 이름과 기간만 받는다', async () => {
+    const user = userEvent.setup()
+    mountScreen()
+
+    await user.click(await screen.findByRole('button', { name: '+ 새 프로젝트' }))
+    expect(screen.queryByLabelText('프로젝트 메모')).toBeNull()
+    expect(screen.queryByLabelText('체크리스트 항목')).toBeNull()
+  })
+})
+
+describe('메모와 체크리스트 고르기', () => {
+  it('체크리스트가 없으면 0/0이고 NaN이 아니다', () => {
+    const progress = checklistProgress(makeProject({ id: 'p1' }))
+    expect(progress).toEqual({ done: 0, total: 0 })
+    expect(Number.isNaN(progress.done)).toBe(false)
+    expect(Number.isNaN(progress.total)).toBe(false)
+  })
+
+  it('빈 체크리스트도 0/0이다', () => {
+    expect(checklistProgress(makeProject({ id: 'p1', checklist: [] }))).toEqual({
+      done: 0,
+      total: 0,
+    })
+  })
+
+  it('체크한 항목만 done으로 센다', () => {
+    const project = makeProject({
+      id: 'p1',
+      checklist: [
+        { id: 'c1', text: '박스', done: true },
+        { id: 'c2', text: '테이프', done: false },
+        { id: 'c3', text: '노끈', done: true },
+      ],
+    })
+    expect(checklistProgress(project)).toEqual({ done: 2, total: 3 })
+  })
+
+  it('두 필드가 없는 옛 프로젝트를 읽어도 오류가 없다', () => {
+    const old = makeProject({ id: 'p1' })
+    expect(old.note).toBeUndefined()
+    expect(old.checklist).toBeUndefined()
+    expect(projectChecklist(old)).toEqual([])
+    expect(checklistProgress(old)).toEqual({ done: 0, total: 0 })
+    expect(noteSummary(old)).toBe('')
+  })
+
+  it('체크리스트 자리에 엉뚱한 값이 있어도 견딘다', () => {
+    const broken = {
+      ...makeProject({ id: 'p1' }),
+      checklist: 'ㅁㄴㅇㄹ',
+    } as unknown as Project
+    expect(projectChecklist(broken)).toEqual([])
+    expect(checklistProgress(broken)).toEqual({ done: 0, total: 0 })
+  })
+
+  it('메모 요약은 첫 줄만 준다', () => {
+    const project = makeProject({ id: 'p1', note: '견적 3곳\n둘째 줄\n셋째 줄' })
+    expect(noteSummary(project)).toBe('견적 3곳')
+  })
+
+  it('앞의 빈 줄은 건너뛴다', () => {
+    expect(noteSummary(makeProject({ id: 'p1', note: '\n   \n실제 내용' }))).toBe('실제 내용')
+  })
+
+  it('아주 긴 첫 줄은 잘라서 준다', () => {
+    const long = 'ㄱ'.repeat(120)
+    const summary = noteSummary(makeProject({ id: 'p1', note: long }))
+    expect(summary).toBe(`${'ㄱ'.repeat(40)}…`)
+    expect(summary.length).toBeLessThan(long.length)
+  })
+
+  it('공백만 있는 메모는 요약이 비어 있다', () => {
+    expect(noteSummary(makeProject({ id: 'p1', note: '   \n  ' }))).toBe('')
+  })
+})
+
+describe('메모 고치기', () => {
+  it('메모를 적고 고치고 지운다', async () => {
+    const project = makeProject({ id: 'p1' })
+    const h = await mountApi({ projects: [project] })
+
+    await act(async () => {
+      await h.api.editProject(projectById(h.snapshot, 'p1'), { note: '견적 3곳' })
+    })
+    expect(projectById(h.snapshot, 'p1').note).toBe('견적 3곳')
+
+    await act(async () => {
+      await h.api.editProject(projectById(h.snapshot, 'p1'), { note: '견적 5곳' })
+    })
+    expect(projectById(h.snapshot, 'p1').note).toBe('견적 5곳')
+
+    await act(async () => {
+      await h.api.editProject(projectById(h.snapshot, 'p1'), { note: undefined })
+    })
+    expect(projectById(h.snapshot, 'p1').note).toBeUndefined()
+  })
+
+  it('만들 때 공백뿐인 메모는 담기지 않는다', async () => {
+    const h = await mountApi()
+
+    let created: Project | null = null
+    await act(async () => {
+      created = await h.api.addProject({ name: '이사 준비', note: '   ' })
+    })
+
+    expect(created!.note).toBeUndefined()
+    expect(created!.checklist).toBeUndefined()
+  })
+})
+
+describe('체크리스트 고치기', () => {
+  const seed = { projects: [makeProject({ id: 'p1' })] }
+
+  async function addAll(h: Harness, texts: string[]) {
+    for (const text of texts) {
+      await act(async () => {
+        await h.api.addChecklistItem(projectById(h.snapshot, 'p1'), text)
+      })
+    }
+  }
+
+  function items(h: Harness) {
+    return projectChecklist(projectById(h.snapshot, 'p1'))
+  }
+
+  it('더한 순서가 유지된다', async () => {
+    const h = await mountApi(seed)
+    await addAll(h, ['박스', '테이프', '노끈'])
+
+    expect(items(h).map((i) => i.text)).toEqual(['박스', '테이프', '노끈'])
+    expect(items(h).every((i) => i.done === false)).toBe(true)
+  })
+
+  it('항목마다 서로 다른 id가 붙는다', async () => {
+    const h = await mountApi(seed)
+    await addAll(h, ['박스', '테이프'])
+
+    const ids = items(h).map((i) => i.id)
+    expect(new Set(ids).size).toBe(2)
+    expect(ids.every((id) => typeof id === 'string' && id !== '')).toBe(true)
+  })
+
+  it('앞뒤 공백은 지워서 담는다', async () => {
+    const h = await mountApi(seed)
+    await addAll(h, ['  박스 사기  '])
+
+    expect(items(h).map((i) => i.text)).toEqual(['박스 사기'])
+  })
+
+  it('빈 항목과 공백뿐인 항목은 더해지지 않는다', async () => {
+    const h = await mountApi(seed)
+    await addAll(h, ['', '   ', '\n\t'])
+
+    expect(items(h)).toEqual([])
+    expect(projectById(h.snapshot, 'p1').updatedAt).toBe(OLD)
+  })
+
+  it('체크를 켜고 다시 끈다', async () => {
+    const h = await mountApi(seed)
+    await addAll(h, ['박스', '테이프'])
+    const target = items(h)[1]!.id
+
+    await act(async () => {
+      await h.api.toggleChecklistItem(projectById(h.snapshot, 'p1'), target)
+    })
+    expect(items(h).map((i) => i.done)).toEqual([false, true])
+    expect(checklistProgress(projectById(h.snapshot, 'p1'))).toEqual({ done: 1, total: 2 })
+
+    await act(async () => {
+      await h.api.toggleChecklistItem(projectById(h.snapshot, 'p1'), target)
+    })
+    expect(items(h).map((i) => i.done)).toEqual([false, false])
+  })
+
+  it('항목 글을 고쳐도 자리와 체크가 그대로다', async () => {
+    const h = await mountApi(seed)
+    await addAll(h, ['박스', '테이프', '노끈'])
+    const target = items(h)[1]!.id
+
+    await act(async () => {
+      await h.api.toggleChecklistItem(projectById(h.snapshot, 'p1'), target)
+    })
+    await act(async () => {
+      await h.api.editChecklistItem(projectById(h.snapshot, 'p1'), target, '  청테이프  ')
+    })
+
+    expect(items(h).map((i) => i.text)).toEqual(['박스', '청테이프', '노끈'])
+    expect(items(h)[1]!.done).toBe(true)
+    expect(items(h)[1]!.id).toBe(target)
+  })
+
+  it('빈 글로는 고치지 않는다', async () => {
+    const h = await mountApi(seed)
+    await addAll(h, ['박스'])
+    const target = items(h)[0]!.id
+    const before = projectById(h.snapshot, 'p1').updatedAt
+
+    await act(async () => {
+      await h.api.editChecklistItem(projectById(h.snapshot, 'p1'), target, '   ')
+    })
+
+    expect(items(h).map((i) => i.text)).toEqual(['박스'])
+    expect(projectById(h.snapshot, 'p1').updatedAt).toBe(before)
+  })
+
+  it('항목을 지우면 나머지 순서가 그대로다', async () => {
+    const h = await mountApi(seed)
+    await addAll(h, ['박스', '테이프', '노끈'])
+    const target = items(h)[1]!.id
+
+    await act(async () => {
+      await h.api.removeChecklistItem(projectById(h.snapshot, 'p1'), target)
+    })
+
+    expect(items(h).map((i) => i.text)).toEqual(['박스', '노끈'])
+  })
+
+  it('없는 항목을 건드려도 아무 일이 없다', async () => {
+    const h = await mountApi(seed)
+    await addAll(h, ['박스'])
+    const before = projectById(h.snapshot, 'p1').updatedAt
+
+    await act(async () => {
+      await h.api.toggleChecklistItem(projectById(h.snapshot, 'p1'), '없는-id')
+    })
+    await act(async () => {
+      await h.api.removeChecklistItem(projectById(h.snapshot, 'p1'), '없는-id')
+    })
+    await act(async () => {
+      await h.api.editChecklistItem(projectById(h.snapshot, 'p1'), '없는-id', '뭔가')
+    })
+
+    expect(items(h).map((i) => i.text)).toEqual(['박스'])
+    expect(projectById(h.snapshot, 'p1').updatedAt).toBe(before)
+  })
+
+  it('체크리스트를 건드리면 updatedAt이 올라가고 createdAt은 그대로다', async () => {
+    const h = await mountApi({ projects: [makeProject({ id: 'p1', createdAt: OLD })] })
+
+    await act(async () => {
+      await h.api.addChecklistItem(projectById(h.snapshot, 'p1'), '박스')
+    })
+
+    const next = projectById(h.snapshot, 'p1')
+    expect(next.createdAt).toBe(OLD)
+    expect(Date.parse(next.updatedAt)).toBeGreaterThan(Date.parse(next.createdAt))
+  })
+
+  it('체크리스트 항목은 todos 테이블에 들어가지 않는다', async () => {
+    const h = await mountApi(seed)
+    await addAll(h, ['박스', '테이프'])
+
+    expect(h.snapshot.todos).toEqual([])
+    expect(projectTasks(h.snapshot, 'p1')).toEqual([])
+    expect(personalTodos(h.snapshot)).toEqual([])
+    expect(projectProgress(h.snapshot, projectById(h.snapshot, 'p1'))).toEqual({
+      done: 0,
+      total: 0,
+      percent: 0,
+    })
+  })
+
+  it('두 필드가 없던 옛 프로젝트에도 항목을 더할 수 있다', async () => {
+    const bare = makeProject({ id: 'p1' })
+    delete (bare as { note?: unknown }).note
+    delete (bare as { checklist?: unknown }).checklist
+    const h = await mountApi({ projects: [bare] })
+
+    await act(async () => {
+      await h.api.addChecklistItem(projectById(h.snapshot, 'p1'), '박스')
+    })
+
+    expect(items(h).map((i) => i.text)).toEqual(['박스'])
+  })
+})
+
+describe('메모와 체크리스트 화면', () => {
+  const open = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(await screen.findByRole('button', { name: /이사 준비/ }))
+  }
+
+  it('상세에서 메모와 체크리스트는 접혀 있다', async () => {
+    const user = userEvent.setup()
+    mountScreen({
+      projects: [
+        makeProject({
+          id: 'p1',
+          name: '이사 준비',
+          note: '견적 3곳',
+          checklist: [{ id: 'c1', text: '박스', done: false }],
+        }),
+      ],
+    })
+
+    await open(user)
+    expect(screen.getByRole('button', { name: '메모 펼치기' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '체크리스트 펼치기' })).toBeTruthy()
+    expect(screen.queryByLabelText('프로젝트 메모')).toBeNull()
+    expect(screen.queryByLabelText('체크리스트 항목')).toBeNull()
+    expect(screen.queryByLabelText('박스 체크 토글')).toBeNull()
+  })
+
+  it('상세에서 메모를 적고 고치고 지운다', async () => {
+    const user = userEvent.setup()
+    mountScreen({ projects: [makeProject({ id: 'p1', name: '이사 준비' })] })
+
+    await open(user)
+    await user.click(screen.getByRole('button', { name: '메모 펼치기' }))
+    await user.type(screen.getByLabelText('프로젝트 메모'), '견적 3곳')
+    await user.click(screen.getByRole('button', { name: '메모 저장' }))
+    expect(await screen.findByText('견적 3곳')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: '메모 펼치기' }))
+    await user.clear(screen.getByLabelText('프로젝트 메모'))
+    await user.type(screen.getByLabelText('프로젝트 메모'), '견적 5곳')
+    await user.click(screen.getByRole('button', { name: '메모 저장' }))
+    expect(await screen.findByText('견적 5곳')).toBeTruthy()
+    expect(screen.queryByText('견적 3곳')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: '메모 펼치기' }))
+    await user.clear(screen.getByLabelText('프로젝트 메모'))
+    await user.click(screen.getByRole('button', { name: '메모 저장' }))
+    await waitFor(() => expect(screen.queryByText('견적 5곳')).toBeNull())
+  })
+
+  it('메모 취소는 적던 것을 버린다', async () => {
+    const user = userEvent.setup()
+    mountScreen({ projects: [makeProject({ id: 'p1', name: '이사 준비', note: '견적 3곳' })] })
+
+    await open(user)
+    await user.click(screen.getByRole('button', { name: '메모 펼치기' }))
+    await user.clear(screen.getByLabelText('프로젝트 메모'))
+    await user.type(screen.getByLabelText('프로젝트 메모'), '엉뚱한 글')
+    await user.click(screen.getByRole('button', { name: '메모 취소' }))
+
+    expect(await screen.findByText('견적 3곳')).toBeTruthy()
+    expect(screen.queryByText('엉뚱한 글')).toBeNull()
+  })
+
+  it('상세에서 체크리스트를 더하고 체크하고 고치고 지운다', async () => {
+    const user = userEvent.setup()
+    mountScreen({ projects: [makeProject({ id: 'p1', name: '이사 준비' })] })
+
+    await open(user)
+    await user.click(screen.getByRole('button', { name: '체크리스트 펼치기' }))
+    expect(screen.getByText('체크리스트 항목이 없습니다.')).toBeTruthy()
+
+    await user.type(screen.getByLabelText('체크리스트 항목'), '박스 사기')
+    await user.click(screen.getByRole('button', { name: '항목 추가' }))
+    expect(await screen.findByText('박스 사기')).toBeTruthy()
+
+    await user.type(screen.getByLabelText('체크리스트 항목'), '테이프 사기')
+    await user.click(screen.getByRole('button', { name: '항목 추가' }))
+    expect(await screen.findByText('테이프 사기')).toBeTruthy()
+
+    await user.click(await screen.findByLabelText('박스 사기 체크 토글'))
+    await waitFor(() => expect(screen.getByText('1/2')).toBeTruthy())
+
+    await user.click(screen.getByLabelText('테이프 사기 항목 고치기'))
+    await user.clear(screen.getByLabelText('테이프 사기 항목 수정'))
+    await user.type(screen.getByLabelText('테이프 사기 항목 수정'), '청테이프 사기')
+    await user.click(screen.getByRole('button', { name: '저장' }))
+    expect(await screen.findByText('청테이프 사기')).toBeTruthy()
+
+    await user.click(screen.getByLabelText('청테이프 사기 항목 삭제'))
+    await waitFor(() => expect(screen.queryByText('청테이프 사기')).toBeNull())
+    expect(screen.getByText('박스 사기')).toBeTruthy()
+  })
+
+  it('빈 항목은 더할 수 없다', async () => {
+    const user = userEvent.setup()
+    mountScreen({ projects: [makeProject({ id: 'p1', name: '이사 준비' })] })
+
+    await open(user)
+    await user.click(screen.getByRole('button', { name: '체크리스트 펼치기' }))
+    await user.type(screen.getByLabelText('체크리스트 항목'), '   ')
+
+    expect(screen.getByRole('button', { name: '항목 추가' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText('체크리스트 항목이 없습니다.')).toBeTruthy()
+  })
+
+  it('카드는 메모 첫 줄과 체크리스트 숫자만 보여준다', async () => {
+    mountScreen({
+      projects: [
+        makeProject({
+          id: 'p1',
+          name: '이사 준비',
+          note: '견적 3곳\n둘째 줄은 감춘다\n셋째 줄도 감춘다',
+          checklist: [
+            { id: 'c1', text: '박스', done: true },
+            { id: 'c2', text: '테이프', done: false },
+            { id: 'c3', text: '노끈', done: false },
+          ],
+        }),
+      ],
+    })
+
+    const card = await screen.findByRole('button', { name: /이사 준비/ })
+    expect(within(card).getByText('견적 3곳')).toBeTruthy()
+    expect(within(card).queryByText('둘째 줄은 감춘다')).toBeNull()
+    expect(within(card).queryByText('셋째 줄도 감춘다')).toBeNull()
+    expect(within(card).getByText('☑ 1/3')).toBeTruthy()
+    for (const text of ['박스', '테이프', '노끈']) {
+      expect(within(card).queryByText(text)).toBeNull()
+    }
+  })
+
+  it('카드의 메모는 아주 길어도 한 줄로 잘린다', async () => {
+    mountScreen({
+      projects: [makeProject({ id: 'p1', name: '이사 준비', note: 'ㄱ'.repeat(200) })],
+    })
+
+    const card = await screen.findByRole('button', { name: /이사 준비/ })
+    expect(within(card).getByText(`${'ㄱ'.repeat(40)}…`)).toBeTruthy()
+    expect(card.textContent?.includes('ㄱ'.repeat(41))).toBe(false)
+  })
+
+  it('체크리스트가 없는 카드에는 체크 숫자를 그리지 않는다', async () => {
+    mountScreen({ projects: [makeProject({ id: 'p1', name: '이사 준비' })] })
+
+    const card = await screen.findByRole('button', { name: /이사 준비/ })
+    expect(within(card).queryByText('☑ 0/0')).toBeNull()
+    expect(within(card).getByText('작업 0/0')).toBeTruthy()
   })
 })

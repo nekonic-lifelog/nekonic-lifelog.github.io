@@ -1,7 +1,8 @@
 import type { Snapshot } from '../data/store'
-import type { Journal, Project, ProjectStatus, Todo, TodoStatus } from './types'
+import type { ChecklistItem, Journal, Project, ProjectStatus, Todo, TodoStatus } from './types'
 
 export const TASK_STATUSES: TodoStatus[] = ['doing', 'todo', 'held', 'done']
+export const NOTE_SUMMARY_LIMIT = 40
 
 const PROJECT_RANK: Record<ProjectStatus, number> = { active: 0, held: 1, done: 2 }
 
@@ -9,6 +10,11 @@ export interface ProjectProgress {
   done: number
   total: number
   percent: number
+}
+
+export interface ChecklistProgress {
+  done: number
+  total: number
 }
 
 function byDueThenCreated(a: Todo, b: Todo): number {
@@ -52,6 +58,35 @@ export function tasksByStatus(tasks: Todo[]): Record<TodoStatus, Todo[]> {
   const groups: Record<TodoStatus, Todo[]> = { todo: [], doing: [], done: [], held: [] }
   for (const task of tasks) groups[task.status].push(task)
   return groups
+}
+
+function isChecklistItem(raw: unknown): raw is ChecklistItem {
+  if (typeof raw !== 'object' || raw === null) return false
+  const item = raw as Partial<ChecklistItem>
+  return typeof item.id === 'string' && typeof item.text === 'string'
+}
+
+export function projectChecklist(project: Project): ChecklistItem[] {
+  if (!Array.isArray(project.checklist)) return []
+  return project.checklist
+    .filter(isChecklistItem)
+    .map((item) => ({ id: item.id, text: item.text, done: item.done === true }))
+}
+
+export function checklistProgress(project: Project): ChecklistProgress {
+  const items = projectChecklist(project)
+  return { done: items.filter((item) => item.done).length, total: items.length }
+}
+
+export function noteSummary(project: Project, limit: number = NOTE_SUMMARY_LIMIT): string {
+  if (typeof project.note !== 'string') return ''
+  const line = project.note
+    .split('\n')
+    .map((raw) => raw.trim())
+    .find((raw) => raw !== '')
+  if (line === undefined) return ''
+  const max = Math.max(1, Math.trunc(limit))
+  return line.length <= max ? line : `${line.slice(0, max)}…`
 }
 
 export function projectMeetings(snapshot: Snapshot, projectId: string): Journal[] {

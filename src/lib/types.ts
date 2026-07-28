@@ -53,12 +53,20 @@ export interface Todo extends Base {
 
 export type ProjectStatus = 'active' | 'held' | 'done'
 
+export interface ChecklistItem {
+  id: string
+  text: string
+  done: boolean
+}
+
 export interface Project extends Base {
   name: string
   status: ProjectStatus
   startAt?: string | undefined
   dueAt?: string | undefined
   order: number
+  note?: string | undefined
+  checklist?: ChecklistItem[] | undefined
 }
 
 export type BookStatus = 'reading' | 'finished' | 'dropped'

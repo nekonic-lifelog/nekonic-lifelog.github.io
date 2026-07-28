@@ -3,12 +3,22 @@ import { daysBetween, logicalDay } from '../lib/day'
 import { dueDateValue, dueTimeValue, formatDueLabel, toDueAt } from '../lib/due'
 import { formatRemaining } from '../lib/select'
 import {
+  checklistProgress,
+  noteSummary,
+  projectChecklist,
   projectMeetings,
   projectProgress,
   projectTasks,
   tasksByStatus,
 } from '../lib/selectProjects'
-import type { Journal, Project, ProjectStatus, Todo, TodoStatus } from '../lib/types'
+import type {
+  ChecklistItem,
+  Journal,
+  Project,
+  ProjectStatus,
+  Todo,
+  TodoStatus,
+} from '../lib/types'
 import { useApp } from '../state/app'
 import { useProjects } from '../state/projects'
 import { useTodos } from '../state/todos'
@@ -58,26 +68,32 @@ function usableOffsets(raw: number[] | undefined): number[] {
   return [...kept].sort((a, b) => b - a)
 }
 
-export function AlertChips({ dueAt }: { dueAt?: string | undefined }) {
+export function AlertChips({
+  dueAt,
+  done,
+}: {
+  dueAt?: string | undefined
+  done?: boolean | undefined
+}) {
   const app = useApp()
   const offsets = usableOffsets(app.snapshot.settings.defaultOffsets)
 
+  if (done === true) return null
   if (!dueAt) return null
   const at = Date.parse(dueAt)
   if (Number.isNaN(at)) return null
+  if (at <= app.clock.now()) return null
   if (offsets.length === 0) return null
 
+  const times = offsets.map((minutes) => {
+    const sendAt = formatDueLabel(new Date(at - minutes * MINUTE_MS).toISOString())
+    return `${sendAt} (${formatAlertOffset(minutes)} 전)`
+  })
+  const label = `알림 예정 ${offsets.length}번: ${times.join(', ')}`
+
   return (
-    <span className="project-alerts" aria-label="알림 예정">
-      {offsets.map((minutes) => (
-        <span
-          key={minutes}
-          className="project-alert"
-          title={`${formatDueLabel(new Date(at - minutes * MINUTE_MS).toISOString())}에 알림`}
-        >
-          {formatAlertOffset(minutes)}
-        </span>
-      ))}
+    <span className="project-alert" title={label} aria-label={label}>
+      알림 {offsets.length}
     </span>
   )
 }
@@ -157,7 +173,7 @@ export function DueEditor({
           {formatRemaining(remaining)}
         </span>
       )}
-      <AlertChips dueAt={todo.dueAt} />
+      <AlertChips dueAt={todo.dueAt} done={todo.status === 'done'} />
     </span>
   )
 }
@@ -287,7 +303,7 @@ export function ProjectDetail({
               <span className={overdue ? 'dday-chip dday-chip--past' : 'dday-chip'}>
                 {remaining === null ? '' : formatRemaining(remaining)}
               </span>
-              <AlertChips dueAt={project.dueAt} />
+              <AlertChips dueAt={project.dueAt} done={project.status === 'done'} />
             </span>
           )}
         </div>
@@ -316,6 +332,9 @@ export function ProjectDetail({
           ))}
         </div>
       </section>
+
+      <ProjectNote project={project} />
+      <ProjectChecklist project={project} />
 
       <TaskComposer projectId={project.id} />
 
@@ -404,6 +423,199 @@ export function ProjectDetail({
         )}
       </section>
     </div>
+  )
+}
+
+function ProjectNote({ project }: { project: Project }) {
+  const api = useProjects()
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState('')
+  const summary = noteSummary(project)
+
+  const save = () => {
+    void api.editProject(project, { note: draft.trim() === '' ? undefined : draft })
+    setOpen(false)
+  }
+
+  return (
+    <section className="card project-fold">
+      <div className="card__head">
+        <button
+          type="button"
+          className="link-btn"
+          aria-expanded={open}
+          onClick={() => {
+            if (open) {
+              setOpen(false)
+              return
+            }
+            setDraft(project.note ?? '')
+            setOpen(true)
+          }}
+        >
+          메모 {open ? '접기' : '펼치기'}
+        </button>
+        {!open && summary !== '' && <span className="project-note__line">{summary}</span>}
+      </div>
+
+      {open && (
+        <>
+          <textarea
+            className="project-note__input"
+            value={draft}
+            rows={4}
+            placeholder="프로젝트 메모"
+            aria-label="프로젝트 메모"
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <div className="btn-row">
+            <button type="button" onClick={save}>
+              메모 저장
+            </button>
+            <button type="button" onClick={() => setOpen(false)}>
+              메모 취소
+            </button>
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+function ProjectChecklist({ project }: { project: Project }) {
+  const api = useProjects()
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState('')
+  const items = projectChecklist(project)
+  const progress = checklistProgress(project)
+
+  const submit = () => {
+    if (!text.trim()) return
+    void api.addChecklistItem(project, text)
+    setText('')
+  }
+
+  return (
+    <section className="card project-fold">
+      <div className="card__head">
+        <button
+          type="button"
+          className="link-btn"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          체크리스트 {open ? '접기' : '펼치기'}
+        </button>
+        <span className="project-count">
+          {progress.done}/{progress.total}
+        </span>
+      </div>
+
+      {open && (
+        <>
+          <form
+            className="composer project-check-composer"
+            onSubmit={(e) => {
+              e.preventDefault()
+              submit()
+            }}
+          >
+            <input
+              type="text"
+              value={text}
+              placeholder="체크리스트 항목"
+              onChange={(e) => setText(e.target.value)}
+              aria-label="체크리스트 항목"
+            />
+            <div className="composer__row">
+              <button type="submit" disabled={!text.trim()}>
+                항목 추가
+              </button>
+            </div>
+          </form>
+
+          {items.length === 0 ? (
+            <p className="empty">체크리스트 항목이 없습니다.</p>
+          ) : (
+            <ul className="project-checklist">
+              {items.map((item) => (
+                <ChecklistRow key={item.id} project={project} item={item} />
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+function ChecklistRow({ project, item }: { project: Project; item: ChecklistItem }) {
+  const api = useProjects()
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(item.text)
+
+  if (editing) {
+    return (
+      <li className="project-check-row">
+        <input
+          type="text"
+          value={draft}
+          aria-label={`${item.text} 항목 수정`}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <button
+          type="button"
+          className="link-btn"
+          onClick={() => {
+            void api.editChecklistItem(project, item.id, draft)
+            setEditing(false)
+          }}
+        >
+          저장
+        </button>
+        <button type="button" className="link-btn" onClick={() => setEditing(false)}>
+          취소
+        </button>
+      </li>
+    )
+  }
+
+  return (
+    <li className="project-check-row">
+      <button
+        type="button"
+        className={item.done ? 'check check--on' : 'check'}
+        aria-pressed={item.done}
+        aria-label={`${item.text} 체크 토글`}
+        onClick={() => void api.toggleChecklistItem(project, item.id)}
+      />
+      <span
+        className={
+          item.done ? 'project-check-text project-check-text--done' : 'project-check-text'
+        }
+      >
+        {item.text}
+      </span>
+      <button
+        type="button"
+        className="link-btn"
+        aria-label={`${item.text} 항목 고치기`}
+        onClick={() => {
+          setDraft(item.text)
+          setEditing(true)
+        }}
+      >
+        수정
+      </button>
+      <button
+        type="button"
+        className="icon-btn icon-btn--danger"
+        aria-label={`${item.text} 항목 삭제`}
+        onClick={() => void api.removeChecklistItem(project, item.id)}
+      >
+        ×
+      </button>
+    </li>
   )
 }
 

@@ -16,6 +16,7 @@ import {
   type HabitView,
 } from '../lib/streak'
 import type { Definition } from '../lib/types'
+import { WeekStrip } from '../ui/WeekStrip'
 import { useApp } from '../state/app'
 import { useHabits } from '../state/habits'
 import { useTodos } from '../state/todos'
@@ -72,6 +73,8 @@ export function Today() {
           ›
         </button>
       </header>
+
+      <WeekStrip selected={viewDay} today={app.today} onSelect={setViewDay} />
 
       {!isToday && (
         <button type="button" className="link-btn" onClick={() => setViewDay(app.today)}>
