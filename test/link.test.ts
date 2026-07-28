@@ -9,6 +9,8 @@ import {
   type LinkPayload,
 } from '../src/link/payload'
 import { decodeQrFromImageData, matrixToImageData, toQrMatrix } from '../src/link/qr'
+import { acceptLinkPayload } from '../src/link/accept'
+import { pathFor } from '../src/sync/paths'
 
 const TOKEN = 'github_pat_test-token-do-not-use'.padEnd(93, '0')
 const REPO = { owner: 'nekonic-lifelog', repo: 'nekonic-lifelog.github.io', branch: 'main' }
@@ -168,5 +170,58 @@ describe('망가진 코드는 거절한다', () => {
       expect(message).not.toContain(payload.key.slice(0, 12))
       expect(message).not.toContain('github_pat')
     }
+  })
+})
+
+describe('기기 연결 수락', () => {
+  const envelopeFor = async () => (await createEnvelope('암호구절')).envelope
+
+  it('QR의 데이터키와 토큰과 저장소를 그대로 받는다', async () => {
+    const payload = samplePayload()
+    const accepted = await acceptLinkPayload(payload, { envelopeFor })
+
+    expect(accepted.token).toBe(payload.token)
+    expect(accepted.remote).toEqual(payload.repo)
+    expect(accepted.dataKey).toBeInstanceOf(CryptoKey)
+  })
+
+  it('받는 기기의 신원을 결과에 담지 않는다', async () => {
+    const accepted = await acceptLinkPayload(samplePayload(), { envelopeFor })
+    expect(Object.keys(accepted).sort()).toEqual(['dataKey', 'envelope', 'remote', 'token'])
+  })
+
+  it('보낸 기기의 deviceId를 받는 기기에 물려주지 않는다', async () => {
+    const payload = samplePayload({ deviceId: 'pc-보낸기기' })
+    const accepted = await acceptLinkPayload(payload, { envelopeFor })
+
+    expect(JSON.stringify({ ...accepted, dataKey: null })).not.toContain('pc-보낸기기')
+  })
+
+  it('같은 QR로 이어도 두 기기가 서로 다른 파일에 쓴다', async () => {
+    const payload = samplePayload({ deviceId: 'pc' })
+    await acceptLinkPayload(payload, { envelopeFor })
+    await acceptLinkPayload(payload, { envelopeFor })
+
+    const row = {
+      id: 'x', v: 1, createdAt: '2026-03-01T12:00:00+09:00',
+      updatedAt: '2026-03-01T12:00:00+09:00', deleted: false,
+    }
+    const pc = pathFor('definitions', { ...row, deviceId: 'pc' })
+    const phone = pathFor('definitions', { ...row, deviceId: 'phone' })
+    expect(pc).not.toBe(phone)
+  })
+
+  it('데이터키 길이가 다르면 거절한다', async () => {
+    const bad = samplePayload({ key: toBase64(randomBytes(16)) })
+    await expect(acceptLinkPayload(bad, { envelopeFor })).rejects.toThrow(LinkError)
+  })
+
+  it('봉투를 못 받으면 연결하지 않는다', async () => {
+    const boom = async () => {
+      throw new Error('봉투 없음')
+    }
+    await expect(
+      acceptLinkPayload(samplePayload(), { envelopeFor: boom }),
+    ).rejects.toThrow('봉투 없음')
   })
 })

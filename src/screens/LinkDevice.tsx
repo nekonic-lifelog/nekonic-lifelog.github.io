@@ -1,7 +1,7 @@
 import { openEnvelope, parseEnvelope } from '../crypto/envelope'
-import { importDataKey } from '../crypto/cipher'
-import { fromBase64, toBase64 } from '../crypto/kdf'
-import { LinkError, type LinkPayload } from '../link/payload'
+import { toBase64 } from '../crypto/kdf'
+import { acceptLinkPayload } from '../link/accept'
+import { type LinkPayload } from '../link/payload'
 import { GithubRepo } from '../remote/github'
 import { idbCredentials, type RemoteConfig } from '../sync/credentials'
 import { ENVELOPE_PATH, SyncSetupError, useSync } from '../state/sync'
@@ -41,13 +41,8 @@ export function LinkDevice() {
         }
       }}
       acceptPayload={async (payload: LinkPayload) => {
-        const remote = { ...payload.repo }
-        const envelope = await envelopeFrom(remote, payload.token)
-        const raw = fromBase64(payload.key)
-        if (raw.length !== 32) throw new LinkError('데이터 키 길이가 맞지 않습니다.')
-        const dataKey = await importDataKey(raw)
-        await app.adoptDeviceId(payload.deviceId)
-        await sync.connectWithKey({ dataKey, envelope, token: payload.token, remote })
+        const accepted = await acceptLinkPayload(payload, { envelopeFor: envelopeFrom })
+        await sync.connectWithKey(accepted)
       }}
       acceptManual={async ({ token, owner, repo, branch, passphrase }) => {
         const remote: RemoteConfig = {
