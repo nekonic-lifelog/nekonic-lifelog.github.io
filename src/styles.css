@@ -592,6 +592,28 @@ input[type='text'] {
   color: #fff;
 }
 
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: none;
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chip--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .field {
   display: flex;
   align-items: center;
@@ -700,4 +722,19 @@ code {
   color: var(--accent);
   font-weight: 600;
   box-shadow: inset 0 2px 0 var(--accent);
+}
+
+@media (min-width: 672px) {
+  .appbar {
+    max-width: 640px;
+    margin-inline: auto;
+  }
+
+  .tabbar {
+    max-width: 640px;
+    margin-inline: auto;
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+    border-radius: 14px 14px 0 0;
+  }
 }

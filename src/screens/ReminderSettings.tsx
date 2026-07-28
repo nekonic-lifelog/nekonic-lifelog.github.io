@@ -80,7 +80,7 @@ export function ReminderSettings() {
           <button
             key={choice.minutes}
             type="button"
-            className={offsets.includes(choice.minutes) ? 'wd wd--on' : 'wd'}
+            className={offsets.includes(choice.minutes) ? 'chip chip--on' : 'chip'}
             aria-pressed={offsets.includes(choice.minutes)}
             onClick={() => toggleOffset(choice.minutes)}
           >
