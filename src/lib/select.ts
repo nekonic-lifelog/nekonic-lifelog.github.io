@@ -8,6 +8,12 @@ export function visibleDefinitions(snapshot: Snapshot): Definition[] {
     .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
 }
 
+export function archivedDefinitions(snapshot: Snapshot): Definition[] {
+  return snapshot.definitions
+    .filter((d) => !d.deleted && !d.hidden && d.archived)
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
+}
+
 export function managedDefinitions(snapshot: Snapshot): Definition[] {
   return snapshot.definitions
     .filter((d) => !d.deleted && !d.hidden)

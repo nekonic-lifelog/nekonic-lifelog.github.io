@@ -284,7 +284,7 @@ function DefinitionRow({ def }: { def: Definition }) {
       <div className="def__head">
         <span className="def__name">{def.name}</span>
         <span className="badge">{def.kind === 'check' ? '체크' : '수량'}</span>
-        {def.archived && <span className="badge">보관됨</span>}
+        {def.archived && <span className="badge">오늘에서 내림</span>}
       </div>
       <div className="def__meta">
         {def.kind === 'quantity' && (
@@ -332,9 +332,14 @@ function DefinitionRow({ def }: { def: Definition }) {
         )}
         <button
           type="button"
+          title={
+            def.archived
+              ? '오늘 화면에 다시 띄웁니다.'
+              : '오늘 화면에서 내립니다. 과거 기록은 그대로 둡니다.'
+          }
           onClick={() => void habits.editDefinition(def, { archived: !def.archived })}
         >
-          {def.archived ? '되돌리기' : '보관'}
+          {def.archived ? '오늘에 다시 띄우기' : '오늘에서 내리기'}
         </button>
         <button
           type="button"

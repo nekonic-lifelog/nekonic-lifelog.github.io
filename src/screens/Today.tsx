@@ -1,7 +1,13 @@
 import { useMemo, useState } from 'react'
 import { addDays, dayKeyToDate, weekdayLabel, weekdayOf } from '../lib/day'
 import { navigate } from '../lib/router'
-import { ddayItems, formatRemaining, todosDueBy, visibleDefinitions } from '../lib/select'
+import {
+  archivedDefinitions,
+  ddayItems,
+  formatRemaining,
+  todosDueBy,
+  visibleDefinitions,
+} from '../lib/select'
 import {
   dayStatus,
   habitView,
@@ -21,6 +27,7 @@ export function Today() {
   const boundaryHour = app.snapshot.settings.dayBoundaryHour
 
   const defs = useMemo(() => visibleDefinitions(app.snapshot), [app.snapshot])
+  const archived = useMemo(() => archivedDefinitions(app.snapshot), [app.snapshot])
   const views = useMemo(
     () =>
       defs.map((def) =>
@@ -101,9 +108,17 @@ export function Today() {
           </button>
         </div>
         {views.length === 0 ? (
-          <p className="empty">
-            아직 습관이 없습니다. 설정에서 추적할 것을 하나 만들어 보세요.
-          </p>
+          archived.length > 0 ? (
+            <p className="empty">
+              오늘에서 내려둔 습관 {archived.length}개가 있습니다 (
+              {archived.map((d) => d.name).join(' · ')}). 설정 → 습관 정의에서 다시
+              띄울 수 있습니다.
+            </p>
+          ) : (
+            <p className="empty">
+              아직 습관이 없습니다. 설정에서 추적할 것을 하나 만들어 보세요.
+            </p>
+          )
         ) : (
           <ul className="habit-list">
             {views.map((view) => (

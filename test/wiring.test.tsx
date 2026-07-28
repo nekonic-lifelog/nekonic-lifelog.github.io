@@ -288,3 +288,50 @@ describe('알림 설정', () => {
     await screen.findByRole('button', { name: '프로젝트 작업 제목 그대로' })
   })
 })
+
+describe('오늘에서 내린 습관', () => {
+  async function addPresetThenArchive() {
+    mount()
+    await ready()
+    await open('설정')
+    await screen.findByRole('heading', { name: '습관 정의' })
+    await open('물 추가')
+    await screen.findByText('오늘에서 내리기')
+    await open('오늘에서 내리기')
+    await screen.findByText('오늘에 다시 띄우기')
+  }
+
+  it('내린 습관은 오늘 화면에 뜨지 않는다', async () => {
+    await addPresetThenArchive()
+    await open('오늘')
+    await waitFor(() => expect(screen.queryByText('물')).toBeNull())
+  })
+
+  it('없다고 하지 않고 내려둔 것이 있다고 알린다', async () => {
+    await addPresetThenArchive()
+    await open('오늘')
+    const msg = await screen.findByText(/내려둔 습관/)
+    expect(msg.textContent).toContain('물')
+    expect(screen.queryByText(/아직 습관이 없습니다/)).toBeNull()
+  })
+
+  it('습관이 정말 하나도 없으면 없다고 한다', async () => {
+    mount()
+    await ready()
+    await screen.findByText(/아직 습관이 없습니다/)
+    expect(screen.queryByText(/내려둔 습관/)).toBeNull()
+  })
+
+  it('다시 띄우면 오늘 화면으로 돌아온다', async () => {
+    await addPresetThenArchive()
+    await open('오늘에 다시 띄우기')
+    await open('오늘')
+    await waitFor(() => expect(screen.getAllByText('물').length).toBeGreaterThan(0))
+    expect(screen.queryByText(/내려둔 습관/)).toBeNull()
+  })
+
+  it('설정 목록에는 내린 뒤에도 남는다', async () => {
+    await addPresetThenArchive()
+    expect(screen.getByText('오늘에서 내림')).toBeTruthy()
+  })
+})
