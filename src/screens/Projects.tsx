@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { daysBetween, logicalDay } from '../lib/day'
+import { dueDateValue, dueTimeValue, formatDueLabel, toDueAt } from '../lib/due'
 import { formatRemaining } from '../lib/select'
 import {
   projectMeetings,
@@ -12,7 +13,7 @@ import { useApp } from '../state/app'
 import { useProjects } from '../state/projects'
 import { useTodos } from '../state/todos'
 
-export const ALERT_OFFSETS = [48, 24, 2, 1]
+const MINUTE_MS = 60_000
 
 const TASK_STATUS_LABEL: Record<TodoStatus, string> = {
   doing: '진행 중',
@@ -39,15 +40,124 @@ export function formatMoment(at: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+function formatAlertOffset(minutes: number): string {
+  if (minutes % 60 === 0) return `${minutes / 60}h`
+  if (minutes < 60) return `${minutes}분`
+  return `${Number((minutes / 60).toFixed(1))}h`
+}
+
+function usableOffsets(raw: number[] | undefined): number[] {
+  if (!Array.isArray(raw)) return []
+  const kept = new Set<number>()
+  for (const value of raw) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue
+    const minutes = Math.trunc(value)
+    if (minutes <= 0) continue
+    kept.add(minutes)
+  }
+  return [...kept].sort((a, b) => b - a)
+}
+
 export function AlertChips({ dueAt }: { dueAt?: string | undefined }) {
+  const app = useApp()
+  const offsets = usableOffsets(app.snapshot.settings.defaultOffsets)
+
   if (!dueAt) return null
+  const at = Date.parse(dueAt)
+  if (Number.isNaN(at)) return null
+  if (offsets.length === 0) return null
+
   return (
     <span className="project-alerts" aria-label="알림 예정">
-      {ALERT_OFFSETS.map((h) => (
-        <span key={h} className="project-alert">
-          {h}h
+      {offsets.map((minutes) => (
+        <span
+          key={minutes}
+          className="project-alert"
+          title={`${formatDueLabel(new Date(at - minutes * MINUTE_MS).toISOString())}에 알림`}
+        >
+          {formatAlertOffset(minutes)}
         </span>
       ))}
+    </span>
+  )
+}
+
+export function DueEditor({
+  todo,
+  remaining,
+  overdue,
+}: {
+  todo: Todo
+  remaining: number | null
+  overdue: boolean
+}) {
+  const todoApi = useTodos()
+  const [editing, setEditing] = useState(false)
+  const [date, setDate] = useState('')
+  const [time, setTime] = useState('')
+
+  const start = () => {
+    setDate(dueDateValue(todo.dueAt))
+    setTime(dueTimeValue(todo.dueAt))
+    setEditing(true)
+  }
+
+  if (editing) {
+    return (
+      <span className="todo-meta due-edit">
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          aria-label={`${todo.title} 기한 날짜`}
+        />
+        <input
+          type="time"
+          value={time}
+          onChange={(e) => setTime(e.target.value)}
+          aria-label={`${todo.title} 기한 시각`}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            void todoApi.editTodo(todo, { dueAt: toDueAt(date, time) })
+            setEditing(false)
+          }}
+        >
+          저장
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            void todoApi.editTodo(todo, { dueAt: undefined, pinned: false })
+            setEditing(false)
+          }}
+        >
+          기한 지우기
+        </button>
+        <button type="button" onClick={() => setEditing(false)}>
+          취소
+        </button>
+      </span>
+    )
+  }
+
+  return (
+    <span className="todo-meta">
+      <button
+        type="button"
+        className="link-btn due-btn"
+        onClick={start}
+        aria-label={`${todo.title} 기한 편집`}
+      >
+        {todo.dueAt ? formatDueLabel(todo.dueAt) : '기한 없음'}
+      </button>
+      {remaining !== null && todo.status !== 'done' && (
+        <span className={overdue ? 'dday-chip dday-chip--past' : 'dday-chip'}>
+          {formatRemaining(remaining)}
+        </span>
+      )}
+      <AlertChips dueAt={todo.dueAt} />
     </span>
   )
 }
@@ -60,18 +170,20 @@ export function ProjectComposer({
   const api = useProjects()
   const [name, setName] = useState('')
   const [due, setDue] = useState('')
+  const [dueTime, setDueTime] = useState('')
 
   const submit = () => {
     if (!name.trim()) return
     void (async () => {
       const project = await api.addProject({
         name,
-        dueAt: due ? new Date(`${due}T12:00:00`).toISOString() : undefined,
+        dueAt: toDueAt(due, dueTime),
       })
       onCreated?.(project)
     })()
     setName('')
     setDue('')
+    setDueTime('')
   }
 
   return (
@@ -95,6 +207,12 @@ export function ProjectComposer({
           value={due}
           onChange={(e) => setDue(e.target.value)}
           aria-label="프로젝트 마감일"
+        />
+        <input
+          type="time"
+          value={dueTime}
+          onChange={(e) => setDueTime(e.target.value)}
+          aria-label="프로젝트 마감 시각"
         />
         <button type="submit" disabled={!name.trim()}>
           프로젝트 만들기
@@ -154,9 +272,9 @@ export function ProjectDetail({
           <span className="project-count">
             {progress.done}/{progress.total} 완료
           </span>
-          {due && (
+          {due && project.dueAt && (
             <span className="todo-due">
-              {due}
+              {formatDueLabel(project.dueAt)}
               <span className={overdue ? 'dday-chip dday-chip--past' : 'dday-chip'}>
                 {remaining === null ? '' : formatRemaining(remaining)}
               </span>
@@ -276,17 +394,19 @@ function TaskComposer({ projectId }: { projectId: string }) {
   const [title, setTitle] = useState('')
   const [assignee, setAssignee] = useState('')
   const [due, setDue] = useState('')
+  const [dueTime, setDueTime] = useState('')
 
   const submit = () => {
     if (!title.trim()) return
     void api.addTask(projectId, {
       title,
       assignee: assignee.trim() || undefined,
-      dueAt: due ? new Date(`${due}T12:00:00`).toISOString() : undefined,
+      dueAt: toDueAt(due, dueTime),
     })
     setTitle('')
     setAssignee('')
     setDue('')
+    setDueTime('')
   }
 
   return (
@@ -317,6 +437,12 @@ function TaskComposer({ projectId }: { projectId: string }) {
           value={due}
           onChange={(e) => setDue(e.target.value)}
           aria-label="작업 기한"
+        />
+        <input
+          type="time"
+          value={dueTime}
+          onChange={(e) => setDueTime(e.target.value)}
+          aria-label="작업 기한 시각"
         />
         <button type="submit" disabled={!title.trim()}>
           작업 추가
@@ -389,18 +515,12 @@ function TaskRow({
         <span className={task.status === 'done' ? 'todo-title todo-title--done' : 'todo-title'}>
           {task.title}
         </span>
-        {(task.assignee || due) && (
+        {task.assignee && (
           <span className="todo-meta">
-            {task.assignee && <span className="project-assignee">{task.assignee}</span>}
-            {due && <span>{due}</span>}
-            {due && remaining !== null && task.status !== 'done' && (
-              <span className={overdue ? 'dday-chip dday-chip--past' : 'dday-chip'}>
-                {formatRemaining(remaining)}
-              </span>
-            )}
-            <AlertChips dueAt={task.dueAt} />
+            <span className="project-assignee">{task.assignee}</span>
           </span>
         )}
+        <DueEditor todo={task} remaining={remaining} overdue={overdue} />
       </div>
       <button
         type="button"

@@ -154,3 +154,34 @@
 .project-composer {
   background: var(--bg);
 }
+
+.todo-meta {
+  flex-wrap: wrap;
+}
+
+.todo-meta .due-btn {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.due-edit {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.due-edit input[type='date'],
+.due-edit input[type='time'] {
+  font-size: 13px;
+  padding: 3px 6px;
+  min-height: 30px;
+}
+
+.due-edit button {
+  font-size: 12px;
+  padding: 2px 8px;
+  min-height: 30px;
+}

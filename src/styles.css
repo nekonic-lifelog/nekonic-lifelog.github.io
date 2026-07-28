@@ -500,7 +500,8 @@ button.danger {
 
 input[type='text'],
 input[type='number'],
-input[type='date'] {
+input[type='date'],
+input[type='time'] {
   font: inherit;
   color: var(--text);
   background: var(--bg);

@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { Snapshot } from '../src/data/store'
 import { parseBackup } from '../src/lib/backup'
+import { toDueAt } from '../src/lib/due'
 import {
   DEFAULT_OFFSETS,
   GRACE_MS,
   buildReminderFile,
+  isoInZone,
   reminderPathFor,
   sameReminderFile,
   serializeReminderFile,
@@ -94,6 +96,64 @@ describe('이벤트 만들기', () => {
     const late = makeTodo({ id: 'a', dueAt: '2026-08-05T09:00:00+09:00' })
     const early = makeTodo({ id: 'b', dueAt: '2026-08-03T09:00:00+09:00' })
     expect(build([late, early]).events.map((e) => e.id)).toEqual(['b', 'a'])
+  })
+})
+
+describe('마감 시각과 사전 알림', () => {
+  const MINUTE_MS = 60_000
+
+  function fireTimes(event: EventReminder, tz = 'Asia/Seoul'): string[] {
+    const at = Date.parse(event.at)
+    return event.offsets.map((minutes) => isoInZone(at - minutes * MINUTE_MS, tz))
+  }
+
+  it('오전 10시 마감에 60분 오프셋이면 09시에 알린다', () => {
+    const todo = makeTodo({ dueAt: toDueAt('2026-08-03', '10:00') })
+    const event = only(build([todo], { defaultOffsets: [60] }))
+
+    expect(event.at).toBe('2026-08-03T10:00:00+09:00')
+    expect(fireTimes(event)).toEqual(['2026-08-03T09:00:00+09:00'])
+  })
+
+  it('오프셋이 여러 개면 각각 제 시각을 갖는다', () => {
+    const todo = makeTodo({ dueAt: toDueAt('2026-08-03', '14:00') })
+    const event = only(build([todo], { defaultOffsets: [1440, 120, 60] }))
+
+    expect(fireTimes(event)).toEqual([
+      '2026-08-02T14:00:00+09:00',
+      '2026-08-03T12:00:00+09:00',
+      '2026-08-03T13:00:00+09:00',
+    ])
+  })
+
+  it('같은 날 세 건이 각자 마감 시각을 기준으로 알린다', () => {
+    const todos = [
+      makeTodo({ id: 't-10', title: '오전 회의', dueAt: toDueAt('2026-08-03', '10:00') }),
+      makeTodo({ id: 't-14', title: '치과', dueAt: toDueAt('2026-08-03', '14:00') }),
+      makeTodo({ id: 't-17', title: '저녁 약속', dueAt: toDueAt('2026-08-03', '17:00') }),
+    ]
+    const file = build(todos, { defaultOffsets: [60] })
+
+    expect(file.events.map((e) => e.at)).toEqual([
+      '2026-08-03T10:00:00+09:00',
+      '2026-08-03T14:00:00+09:00',
+      '2026-08-03T17:00:00+09:00',
+    ])
+    expect(file.events.flatMap((e) => fireTimes(e))).toEqual([
+      '2026-08-03T09:00:00+09:00',
+      '2026-08-03T13:00:00+09:00',
+      '2026-08-03T16:00:00+09:00',
+    ])
+  })
+
+  it('시각을 비워 만든 마감만 정오로 간다', () => {
+    const todo = makeTodo({ dueAt: toDueAt('2026-08-03') })
+    expect(only(build([todo])).at).toBe('2026-08-03T12:00:00+09:00')
+  })
+
+  it('자정 마감이 앞날로 밀리지 않는다', () => {
+    const todo = makeTodo({ dueAt: toDueAt('2026-08-03', '00:00') })
+    expect(only(build([todo])).at).toBe('2026-08-03T00:00:00+09:00')
   })
 })
 

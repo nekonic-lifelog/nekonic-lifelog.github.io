@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
 import { daysBetween, logicalDay } from '../lib/day'
+import { formatDueLabel, toDueAt } from '../lib/due'
 import { dueDayOf, formatRemaining } from '../lib/select'
 import { personalTodos, projectProgress, sortedProjects } from '../lib/selectProjects'
 import type { Project, Todo } from '../lib/types'
 import { useApp } from '../state/app'
 import { useTodos } from '../state/todos'
-import { AlertChips, ProjectComposer, ProjectDetail } from './Projects'
+import { AlertChips, DueEditor, ProjectComposer, ProjectDetail } from './Projects'
 import '../styles/projects.css'
 
 export function Todos() {
@@ -156,9 +157,9 @@ function ProjectCard({
         <span className="project-bar">
           <span className="project-bar__fill" style={{ width: `${progress.percent}%` }} />
         </span>
-        {due && (
+        {due && project.dueAt && (
           <span className="todo-due">
-            {due}
+            {formatDueLabel(project.dueAt)}
             {remaining !== null && project.status !== 'done' && (
               <span className={overdue ? 'dday-chip dday-chip--past' : 'dday-chip'}>
                 {formatRemaining(remaining)}
@@ -176,17 +177,19 @@ function TodoComposer() {
   const todoApi = useTodos()
   const [title, setTitle] = useState('')
   const [due, setDue] = useState('')
+  const [dueTime, setDueTime] = useState('')
   const [pinned, setPinned] = useState(false)
 
   const submit = () => {
     if (!title.trim()) return
     void todoApi.addTodo({
       title,
-      dueAt: due ? new Date(`${due}T12:00:00`).toISOString() : undefined,
+      dueAt: toDueAt(due, dueTime),
       pinned,
     })
     setTitle('')
     setDue('')
+    setDueTime('')
     setPinned(false)
   }
 
@@ -211,6 +214,12 @@ function TodoComposer() {
           value={due}
           onChange={(e) => setDue(e.target.value)}
           aria-label="기한"
+        />
+        <input
+          type="time"
+          value={dueTime}
+          onChange={(e) => setDueTime(e.target.value)}
+          aria-label="기한 시각"
         />
         <label className="composer__pin">
           <input
@@ -258,17 +267,7 @@ function TodoRow({
         <span className={todo.status === 'done' ? 'todo-title todo-title--done' : 'todo-title'}>
           {todo.title}
         </span>
-        {due && (
-          <span className="todo-meta">
-            {due}
-            {remaining !== null && todo.status !== 'done' && (
-              <span className={overdue ? 'dday-chip dday-chip--past' : 'dday-chip'}>
-                {formatRemaining(remaining)}
-              </span>
-            )}
-            <AlertChips dueAt={todo.dueAt} />
-          </span>
-        )}
+        <DueEditor todo={todo} remaining={remaining} overdue={overdue} />
       </div>
       <button
         type="button"
