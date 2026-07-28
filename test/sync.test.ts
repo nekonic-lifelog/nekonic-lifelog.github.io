@@ -356,6 +356,14 @@ async function settle(times = 30): Promise<void> {
   }
 }
 
+async function until(check: () => boolean, times = 5000): Promise<void> {
+  for (let i = 0; i < times; i++) {
+    if (check()) return
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+  throw new Error('기다리던 조건이 끝내 성립하지 않았습니다')
+}
+
 beforeEach(async () => {
   resetIds()
   dataKey = await importDataKey(randomBytes(32))
@@ -634,7 +642,7 @@ describe('디바운스', () => {
     expect(fake.commitCount()).toBe(0)
 
     vi.advanceTimersByTime(1)
-    await settle()
+    await until(() => fake.commitCount() === 1 && phone.engine.state.pendingCount === 0)
 
     expect(fake.commitCount()).toBe(1)
     expect(phone.engine.state.pendingCount).toBe(0)
