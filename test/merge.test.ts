@@ -188,9 +188,12 @@ describe('스냅샷 병합', () => {
   })
 
   it('설정은 이 기기 것을 유지한다', () => {
-    const local = snap({}, { dayBoundaryHour: 4 })
-    const remote = snap({}, { dayBoundaryHour: 9 })
-    expect(mergeSnapshots(local, remote).settings).toEqual({ dayBoundaryHour: 4 })
+    const local = snap({}, { ...DEFAULT_SETTINGS, dayBoundaryHour: 4 })
+    const remote = snap({}, { ...DEFAULT_SETTINGS, dayBoundaryHour: 9 })
+    expect(mergeSnapshots(local, remote).settings).toEqual({
+      ...DEFAULT_SETTINGS,
+      dayBoundaryHour: 4,
+    })
   })
 })
 

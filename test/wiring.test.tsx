@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { App } from '../src/App'
@@ -235,5 +235,56 @@ describe('변경 신호', () => {
     off()
     notifyDirty()
     expect(fired).toBe(1)
+  })
+})
+
+describe('알림 설정', () => {
+  it('설정에 알림 구역이 있고 평문으로 나간다고 알린다', async () => {
+    mount()
+    await ready()
+    await open('설정')
+    await screen.findByRole('heading', { name: '알림' })
+    expect(screen.getByText(/평문으로/)).toBeTruthy()
+    expect(screen.getByText('Asia/Seoul')).toBeTruthy()
+    expect(screen.getByText('반복 알림이 없습니다.')).toBeTruthy()
+  })
+
+  it('반복 알림을 더하면 목록에 남는다', async () => {
+    mount()
+    await ready()
+    await open('설정')
+    await screen.findByRole('heading', { name: '알림' })
+    await open('+ 반복 알림')
+
+    fireEvent.change(await screen.findByLabelText('반복 알림 시각'), {
+      target: { value: '18:00' },
+    })
+    fireEvent.change(screen.getByLabelText('반복 알림 라벨'), {
+      target: { value: '저녁 약' },
+    })
+    await open('반복 알림 추가')
+
+    await screen.findByText('저녁 약')
+    expect(screen.getByText('18:00')).toBeTruthy()
+    expect(screen.queryByText('반복 알림이 없습니다.')).toBeNull()
+  })
+
+  it('사전 알림 오프셋과 제목 가리기를 켜고 끌 수 있다', async () => {
+    mount()
+    await ready()
+    await open('설정')
+    await screen.findByRole('heading', { name: '알림' })
+
+    const twoHours = screen.getByRole('button', { name: '2시간 전' })
+    expect(twoHours.getAttribute('aria-pressed')).toBe('true')
+    await open('2시간 전')
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: '2시간 전' }).getAttribute('aria-pressed'),
+      ).toBe('false'),
+    )
+
+    await open('프로젝트 작업 제목 가림')
+    await screen.findByRole('button', { name: '프로젝트 작업 제목 그대로' })
   })
 })

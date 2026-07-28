@@ -3,6 +3,7 @@ import { importDataKey, openJson, sealJson } from '../src/crypto/cipher'
 import { fromBase64, randomBytes, toBase64 } from '../src/crypto/kdf'
 import type { RowTypes, Snapshot, Store, TableName } from '../src/data/store'
 import { fixedClock, mutableClock, type Clock } from '../src/lib/clock'
+import type { ReminderFile } from '../src/lib/reminders'
 import { DEFAULT_SETTINGS, type Base } from '../src/lib/types'
 import { GithubRepo } from '../src/remote/github'
 import { REDACTED } from '../src/remote/tokenScrub'
@@ -10,7 +11,15 @@ import type { RepoRef } from '../src/remote/types'
 import { memorySyncCache } from '../src/sync/credentials'
 import { SyncEngine, type SyncEngineOptions, type SyncState } from '../src/sync/engine'
 import { mergeRows } from '../src/sync/merge'
-import { makeBook, makeDef, makeJournal, makeProject, makeRecord, resetIds } from './factories'
+import {
+  makeBook,
+  makeDef,
+  makeJournal,
+  makeProject,
+  makeRecord,
+  makeTodo,
+  resetIds,
+} from './factories'
 
 const TOKEN = 'test-token-do-not-use'
 const REPO: RepoRef = { owner: 'nekonic', repo: 'lifelog', branch: 'main' }
@@ -670,6 +679,132 @@ describe('경합', () => {
     const files = await remoteFiles(fake)
     expect(files.get('books/phone.enc')).toHaveLength(2)
     expect(files.get('projects/pc.enc')?.[0]?.id).toBe('pj-9')
+  })
+})
+
+describe('알림 파일', () => {
+  const PATH = 'meta/reminders/phone.json'
+  const DUE = '2026-03-14T14:00:00+09:00'
+
+  const textAt = (fake: Fake, path: string): string =>
+    new TextDecoder().decode(fake.bytesAt(path) as Uint8Array)
+
+  const readFile = (fake: Fake): ReminderFile =>
+    JSON.parse(textAt(fake, PATH)) as ReminderFile
+
+  it('같은 커밋에 평문 JSON으로 들어간다', async () => {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone')
+    const todo = makeTodo({ deviceId: 'phone', title: '병원 예약', dueAt: DUE })
+    await phone.store.put('todos', [todo])
+
+    await phone.engine.push()
+
+    expect(fake.commitCount()).toBe(1)
+    expect(fake.paths()).toEqual([PATH, 'todos/phone.enc'])
+
+    const file = readFile(fake)
+    expect(file.tz).toBe('Asia/Seoul')
+    expect(file.recurring).toEqual([])
+    expect(file.events).toEqual([
+      {
+        id: todo.id,
+        at: DUE,
+        label: '병원 예약',
+        offsets: [2880, 1440, 120, 60],
+        channel: 'discord',
+      },
+    ])
+  })
+
+  it('프로젝트 작업 제목은 올라간 파일에 나타나지 않는다', async () => {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone')
+    await phone.store.put('todos', [
+      makeTodo({
+        deviceId: 'phone',
+        title: '3분기 매출 점검 회의',
+        projectId: 'pj-1',
+        dueAt: DUE,
+      }),
+    ])
+
+    await phone.engine.push()
+
+    expect(textAt(fake, PATH)).not.toContain('3분기 매출 점검 회의')
+    expect(readFile(fake).events[0]?.label).toBe('업무')
+  })
+
+  it('내용이 그대로면 다음 올리기에 넣지 않는다', async () => {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone')
+    await phone.store.put('todos', [makeTodo({ deviceId: 'phone', dueAt: DUE })])
+    await phone.engine.push()
+
+    fake.inject(PATH, new TextEncoder().encode('밖에서 손댄 것'))
+    await phone.store.put('books', [makeBook({ deviceId: 'phone', id: 'bk-2' })])
+    await phone.engine.push()
+
+    expect(fake.paths()).toContain('books/phone.enc')
+    expect(textAt(fake, PATH)).toBe('밖에서 손댄 것')
+  })
+
+  it('내용이 바뀌면 다시 올린다', async () => {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone')
+    const todo = makeTodo({ deviceId: 'phone', dueAt: DUE })
+    await phone.store.put('todos', [todo])
+    await phone.engine.push()
+    expect(readFile(fake).events).toHaveLength(1)
+
+    await phone.store.put('todos', [
+      { ...todo, status: 'done', updatedAt: '2026-03-12T21:00:00+09:00' },
+    ])
+    await phone.engine.push()
+
+    expect(readFile(fake).events).toEqual([])
+  })
+
+  it('다른 기기의 알림 파일을 건드리지 않는다', async () => {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone')
+    const theirs = '{"tz":"Asia/Seoul","recurring":[],"events":[]}\n'
+    fake.inject('meta/reminders/pc.json', new TextEncoder().encode(theirs))
+    const before = fake.shaAt('meta/reminders/pc.json')
+
+    await phone.store.put('todos', [makeTodo({ deviceId: 'phone', dueAt: DUE })])
+    await phone.engine.push()
+
+    expect(fake.paths()).toContain(PATH)
+    expect(fake.shaAt('meta/reminders/pc.json')).toBe(before)
+    expect(textAt(fake, 'meta/reminders/pc.json')).toBe(theirs)
+  })
+
+  it('알릴 것이 하나도 없으면 파일을 만들지 않고 나머지는 그대로 올린다', async () => {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone')
+    await phone.store.put('books', [makeBook({ deviceId: 'phone' })])
+
+    await phone.engine.push()
+
+    expect(fake.commitCount()).toBe(1)
+    expect(fake.paths()).toEqual(['books/phone.enc'])
+    expect(phone.engine.state.lastError).toBeNull()
+  })
+
+  it('마감이 지나 소용없어진 이벤트는 파일에서 사라진다', async () => {
+    const fake = fakeGithub()
+    const tick = mutableClock(NOW)
+    clock = tick
+    const phone = device(fake, 'phone')
+    await phone.store.put('todos', [makeTodo({ deviceId: 'phone', dueAt: DUE })])
+    await phone.engine.push()
+    expect(readFile(fake).events).toHaveLength(1)
+
+    tick.advanceDays(5)
+    await phone.engine.push()
+
+    expect(readFile(fake).events).toEqual([])
   })
 })
 

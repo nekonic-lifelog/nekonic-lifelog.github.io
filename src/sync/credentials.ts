@@ -1,4 +1,5 @@
 import type { Envelope } from '../crypto/envelope'
+import type { ReminderFile } from '../lib/reminders'
 
 const DB_NAME = 'lifelog-keys'
 const DB_VERSION = 1
@@ -31,6 +32,7 @@ export interface SyncCacheData {
   blobs: Record<string, string>
   pushed: Record<string, string>
   backfilled: boolean
+  reminders: ReminderFile | null
 }
 
 export interface SyncCache {
@@ -40,7 +42,7 @@ export interface SyncCache {
 }
 
 export function emptyCache(): SyncCacheData {
-  return { commitSha: '', blobs: {}, pushed: {}, backfilled: false }
+  return { commitSha: '', blobs: {}, pushed: {}, backfilled: false, reminders: null }
 }
 
 function promisify<T>(req: IDBRequest<T>): Promise<T> {
@@ -148,6 +150,14 @@ function asCredentials(value: unknown): Credentials | null {
   }
 }
 
+function asReminders(value: unknown): ReminderFile | null {
+  if (typeof value !== 'object' || value === null) return null
+  const r = value as Record<string, unknown>
+  if (typeof r['tz'] !== 'string') return null
+  if (!Array.isArray(r['recurring']) || !Array.isArray(r['events'])) return null
+  return value as ReminderFile
+}
+
 function asCache(value: unknown): SyncCacheData {
   if (typeof value !== 'object' || value === null) return emptyCache()
   const c = value as Record<string, unknown>
@@ -161,6 +171,7 @@ function asCache(value: unknown): SyncCacheData {
         ? { ...(pushed as Record<string, string>) }
         : {},
     backfilled: c['backfilled'] === true,
+    reminders: asReminders(c['reminders']),
   }
 }
 

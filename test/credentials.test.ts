@@ -133,6 +133,7 @@ describe('트리 캐시', () => {
       blobs: { '/todos/phone.enc': 'sha-a' },
       pushed: { '/todos/phone.enc': 'mark-a' },
       backfilled: true,
+      reminders: null,
     })
     const again = await idbSyncCache().load()
     expect(again.commitSha).toBe('c1')

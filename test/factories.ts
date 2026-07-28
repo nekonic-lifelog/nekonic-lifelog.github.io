@@ -6,6 +6,7 @@ import {
   type LogRecord,
   type Project,
   type TargetPoint,
+  type Todo,
 } from '../src/lib/types'
 
 let seq = 0
@@ -81,6 +82,22 @@ export function makeProject(overrides: Partial<Project> = {}): Project {
     name: '이사 준비',
     status: 'active',
     order: 0,
+    ...overrides,
+  }
+}
+
+export function makeTodo(overrides: Partial<Todo> = {}): Todo {
+  const createdAt = overrides.createdAt ?? '2026-03-01T12:00:00+09:00'
+  return {
+    id: overrides.id ?? nextId(),
+    v: SCHEMA_VERSION,
+    createdAt,
+    deviceId: DEVICE,
+    updatedAt: createdAt,
+    deleted: false,
+    title: '장보기',
+    status: 'todo',
+    pinned: false,
     ...overrides,
   }
 }

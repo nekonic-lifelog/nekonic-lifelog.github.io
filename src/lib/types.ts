@@ -1,3 +1,6 @@
+import { DEFAULT_OFFSETS, DEFAULT_TZ } from './reminders'
+import type { ReminderChannel, RecurringReminder } from './reminders'
+
 export const SCHEMA_VERSION = 1
 
 export interface Base {
@@ -84,6 +87,18 @@ export interface Journal extends Base {
 
 export interface Settings {
   dayBoundaryHour: number
+  tz: string
+  notifyChannel: ReminderChannel
+  defaultOffsets: number[]
+  recurring: RecurringReminder[]
+  maskProjectLabels: boolean
 }
 
-export const DEFAULT_SETTINGS: Settings = { dayBoundaryHour: 4 }
+export const DEFAULT_SETTINGS: Settings = {
+  dayBoundaryHour: 4,
+  tz: DEFAULT_TZ,
+  notifyChannel: 'discord',
+  defaultOffsets: [...DEFAULT_OFFSETS],
+  recurring: [],
+  maskProjectLabels: true,
+}

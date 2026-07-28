@@ -23,7 +23,7 @@ function sampleSnapshot(): Snapshot {
     projects: [makeProject()],
     books: [makeBook()],
     journal: [makeJournal()],
-    settings: { dayBoundaryHour: 4 },
+    settings: { ...DEFAULT_SETTINGS, dayBoundaryHour: 4 },
   }
 }
 

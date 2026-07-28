@@ -237,7 +237,7 @@ describe('replaceAll — 불러오기', () => {
       projects: [makeProject()],
       books: [],
       journal: [makeJournal()],
-      settings: { dayBoundaryHour: 6 },
+      settings: { ...DEFAULT_SETTINGS, dayBoundaryHour: 6 },
     }
   }
 

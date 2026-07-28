@@ -1,6 +1,13 @@
 import { openJson, sealJson } from '../crypto/cipher'
 import type { Snapshot, Store, TableName } from '../data/store'
 import type { Clock } from '../lib/clock'
+import {
+  buildReminderFile,
+  reminderPathFor,
+  sameReminderFile,
+  serializeReminderFile,
+  type ReminderFile,
+} from '../lib/reminders'
 import type { Base } from '../lib/types'
 import type { GithubRepo } from '../remote/github'
 import { AuthError } from '../remote/types'
@@ -96,6 +103,11 @@ function fingerprint(rows: Base[]): string {
 
 function byId(a: Base, b: Base): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+
+function changedReminders(before: ReminderFile | null, next: ReminderFile): boolean {
+  if (before === null) return next.recurring.length > 0 || next.events.length > 0
+  return !sameReminderFile(before, next)
 }
 
 function reason(err: unknown): string {
@@ -293,6 +305,7 @@ export class SyncEngine {
       blobs,
       pushed: cache.pushed,
       backfilled: cache.backfilled || full,
+      reminders: cache.reminders,
     })
     return soft
   }
@@ -316,6 +329,19 @@ export class SyncEngine {
       pushed[path] = mark
     }
 
+    const reminders = buildReminderFile({
+      snapshot,
+      settings: snapshot.settings,
+      now: this.#opts.clock.now(),
+    })
+    const sendReminders = changedReminders(cache.reminders, reminders)
+    if (sendReminders) {
+      put.push({
+        path: reminderPathFor(this.#opts.deviceId),
+        content: new TextEncoder().encode(serializeReminderFile(reminders)),
+      })
+    }
+
     if (put.length === 0) {
       this.#patch({ pendingCount: Math.max(0, this.#state.pendingCount - claimed) })
       return null
@@ -329,6 +355,7 @@ export class SyncEngine {
       blobs: cache.blobs,
       pushed,
       backfilled: cache.backfilled,
+      reminders: sendReminders ? reminders : cache.reminders,
     })
     this.#patch({ pendingCount: Math.max(0, this.#state.pendingCount - claimed) })
     return null

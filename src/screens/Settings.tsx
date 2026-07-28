@@ -8,6 +8,7 @@ import { useApp } from '../state/app'
 import { useHabits, type NewDefinition } from '../state/habits'
 import { presetDefinitionInput, type DefinitionPreset } from '../lib/presets'
 import { PresetPicker } from '../ui/PresetPicker'
+import { ReminderSettings } from './ReminderSettings'
 import { SyncSettings } from './SyncSettings'
 
 export function Settings() {
@@ -17,6 +18,7 @@ export function Settings() {
     <div className="screen">
       <h1 className="screen__title">설정</h1>
       <SyncSettings />
+      <ReminderSettings />
       <BackupSection />
       <DefinitionsSection />
       <DayBoundarySection />
