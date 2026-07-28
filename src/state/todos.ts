@@ -7,7 +7,21 @@ export interface NewTodo {
   title: string
   dueAt?: string | undefined
   pinned?: boolean | undefined
+  place?: string | undefined
   note?: string | undefined
+}
+
+function cleanText(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  const trimmed = raw.trim()
+  return trimmed === '' ? undefined : trimmed
+}
+
+function cleanPatch(patch: Partial<Todo>): Partial<Todo> {
+  const next: Partial<Todo> = { ...patch }
+  if ('place' in next) next.place = cleanText(next.place)
+  if ('note' in next) next.note = cleanText(next.note)
+  return next
 }
 
 export interface TodosApi {
@@ -29,13 +43,14 @@ export function useTodos(): TodosApi {
           status: 'todo',
           dueAt: input.dueAt,
           pinned: input.pinned ?? false,
-          note: input.note,
+          place: cleanText(input.place),
+          note: cleanText(input.note),
         }
         await write('todos', [todo])
       },
 
       async editTodo(todo, patch) {
-        await write('todos', [touch({ ...todo, ...patch }, ctx)])
+        await write('todos', [touch({ ...todo, ...cleanPatch(patch) }, ctx)])
       },
 
       async setTodoStatus(todo, status) {

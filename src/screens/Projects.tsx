@@ -10,6 +10,8 @@ import {
   projectProgress,
   projectTasks,
   tasksByStatus,
+  todoNoteSummary,
+  todoPlace,
 } from '../lib/selectProjects'
 import type {
   ChecklistItem,
@@ -174,6 +176,93 @@ export function DueEditor({
         </span>
       )}
       <AlertChips dueAt={todo.dueAt} done={todo.status === 'done'} />
+    </span>
+  )
+}
+
+export function PlaceNoteButton({
+  todo,
+  open,
+  onToggle,
+}: {
+  todo: Todo
+  open: boolean
+  onToggle(): void
+}) {
+  return (
+    <button
+      type="button"
+      className={open ? 'place-btn place-btn--on' : 'place-btn'}
+      aria-expanded={open}
+      aria-label={`${todo.title} 장소·메모 편집`}
+      title="장소와 메모"
+      onClick={onToggle}
+    >
+      ⋯
+    </button>
+  )
+}
+
+function PlaceNoteEditor({ todo, onClose }: { todo: Todo; onClose(): void }) {
+  const todoApi = useTodos()
+  const [place, setPlace] = useState(todo.place ?? '')
+  const [note, setNote] = useState(todo.note ?? '')
+
+  return (
+    <span className="todo-meta place-edit">
+      <input
+        type="text"
+        value={place}
+        placeholder="장소"
+        aria-label={`${todo.title} 장소`}
+        onChange={(e) => setPlace(e.target.value)}
+      />
+      <textarea
+        value={note}
+        rows={3}
+        placeholder="메모"
+        aria-label={`${todo.title} 메모`}
+        onChange={(e) => setNote(e.target.value)}
+      />
+      <button
+        type="button"
+        onClick={() => {
+          void todoApi.editTodo(todo, { place, note })
+          onClose()
+        }}
+      >
+        저장
+      </button>
+      <button type="button" onClick={onClose}>
+        취소
+      </button>
+    </span>
+  )
+}
+
+export function PlaceNoteLine({
+  todo,
+  open,
+  onClose,
+}: {
+  todo: Todo
+  open: boolean
+  onClose(): void
+}) {
+  const shown = todoPlace(todo)
+  const summary = todoNoteSummary(todo)
+
+  if (open) return <PlaceNoteEditor todo={todo} onClose={onClose} />
+  if (shown === '' && summary === '') return null
+
+  return (
+    <span className="todo-meta todo-extra">
+      {shown !== '' && (
+        <span className="todo-place" title={shown}>
+          {shown}
+        </span>
+      )}
+      {summary !== '' && <span className="todo-note">{summary}</span>}
     </span>
   )
 }
@@ -723,6 +812,7 @@ function TaskRow({
 }) {
   const api = useProjects()
   const todoApi = useTodos()
+  const [extra, setExtra] = useState(false)
   const due = task.dueAt ? logicalDay(task.dueAt, boundaryHour) : null
   const remaining = due ? daysBetween(due, today) : null
   const overdue = remaining !== null && remaining < 0 && task.status !== 'done'
@@ -742,8 +832,11 @@ function TaskRow({
         ))}
       </select>
       <div className="todo__text">
-        <span className={task.status === 'done' ? 'todo-title todo-title--done' : 'todo-title'}>
-          {task.title}
+        <span className="todo-head">
+          <span className={task.status === 'done' ? 'todo-title todo-title--done' : 'todo-title'}>
+            {task.title}
+          </span>
+          <PlaceNoteButton todo={task} open={extra} onToggle={() => setExtra((v) => !v)} />
         </span>
         {task.assignee && (
           <span className="todo-meta">
@@ -751,6 +844,7 @@ function TaskRow({
           </span>
         )}
         <DueEditor todo={task} remaining={remaining} overdue={overdue} />
+        <PlaceNoteLine todo={task} open={extra} onClose={() => setExtra(false)} />
       </div>
       <button
         type="button"

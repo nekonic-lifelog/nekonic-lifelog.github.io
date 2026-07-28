@@ -8,6 +8,7 @@ import {
   todosDueBy,
   visibleDefinitions,
 } from '../lib/select'
+import { todoPlace } from '../lib/selectProjects'
 import {
   dayStatus,
   habitView,
@@ -20,6 +21,7 @@ import { WeekStrip } from '../ui/WeekStrip'
 import { useApp } from '../state/app'
 import { useHabits } from '../state/habits'
 import { useTodos } from '../state/todos'
+import '../styles/projects.css'
 
 export function Today() {
   const app = useApp()
@@ -143,7 +145,7 @@ export function Today() {
         ) : (
           <ul className="todo-list">
             {todos.map((todo) => (
-              <li key={todo.id}>
+              <li key={todo.id} className="today-todo">
                 <button
                   type="button"
                   className="check"
@@ -151,6 +153,11 @@ export function Today() {
                   aria-label={`${todo.title} 완료`}
                 />
                 <span className="todo-title">{todo.title}</span>
+                {todoPlace(todo) !== '' && (
+                  <span className="todo-place" title={todoPlace(todo)}>
+                    {todoPlace(todo)}
+                  </span>
+                )}
                 {todo.dueAt && (
                   <span className="todo-due">{todo.dueAt.slice(0, 10)}</span>
                 )}

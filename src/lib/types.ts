@@ -48,6 +48,7 @@ export interface Todo extends Base {
   assignee?: string | undefined
   pinned: boolean
   sourceId?: string | undefined
+  place?: string | undefined
   note?: string | undefined
 }
 

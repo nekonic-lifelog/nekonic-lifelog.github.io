@@ -78,15 +78,30 @@ export function checklistProgress(project: Project): ChecklistProgress {
   return { done: items.filter((item) => item.done).length, total: items.length }
 }
 
-export function noteSummary(project: Project, limit: number = NOTE_SUMMARY_LIMIT): string {
-  if (typeof project.note !== 'string') return ''
-  const line = project.note
+export function summarizeNote(
+  note: string | undefined,
+  limit: number = NOTE_SUMMARY_LIMIT,
+): string {
+  if (typeof note !== 'string') return ''
+  const line = note
     .split('\n')
     .map((raw) => raw.trim())
     .find((raw) => raw !== '')
   if (line === undefined) return ''
   const max = Math.max(1, Math.trunc(limit))
   return line.length <= max ? line : `${line.slice(0, max)}…`
+}
+
+export function noteSummary(project: Project, limit: number = NOTE_SUMMARY_LIMIT): string {
+  return summarizeNote(project.note, limit)
+}
+
+export function todoNoteSummary(todo: Todo, limit: number = NOTE_SUMMARY_LIMIT): string {
+  return summarizeNote(todo.note, limit)
+}
+
+export function todoPlace(todo: Todo): string {
+  return typeof todo.place === 'string' ? todo.place.trim() : ''
 }
 
 export function projectMeetings(snapshot: Snapshot, projectId: string): Journal[] {

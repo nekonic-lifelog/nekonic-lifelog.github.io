@@ -14,7 +14,14 @@ import type { Project, Todo } from '../lib/types'
 import { useApp } from '../state/app'
 import { useTodos } from '../state/todos'
 import { Timeline } from '../ui/Timeline'
-import { AlertChips, DueEditor, ProjectComposer, ProjectDetail } from './Projects'
+import {
+  AlertChips,
+  DueEditor,
+  PlaceNoteButton,
+  PlaceNoteLine,
+  ProjectComposer,
+  ProjectDetail,
+} from './Projects'
 import '../styles/projects.css'
 
 export function Todos() {
@@ -210,6 +217,9 @@ function TodoComposer() {
   const [due, setDue] = useState('')
   const [dueTime, setDueTime] = useState('')
   const [pinned, setPinned] = useState(false)
+  const [detail, setDetail] = useState(false)
+  const [place, setPlace] = useState('')
+  const [note, setNote] = useState('')
 
   const submit = () => {
     if (!title.trim()) return
@@ -217,11 +227,15 @@ function TodoComposer() {
       title,
       dueAt: toDueAt(due, dueTime),
       pinned,
+      place,
+      note,
     })
     setTitle('')
     setDue('')
     setDueTime('')
     setPinned(false)
+    setPlace('')
+    setNote('')
   }
 
   return (
@@ -260,10 +274,36 @@ function TodoComposer() {
           />
           D-day로 고정
         </label>
+        <button
+          type="button"
+          className="link-btn composer__more"
+          aria-expanded={detail}
+          onClick={() => setDetail((v) => !v)}
+        >
+          자세히
+        </button>
         <button type="submit" disabled={!title.trim()}>
           추가
         </button>
       </div>
+      {detail && (
+        <div className="composer__row composer__detail">
+          <input
+            type="text"
+            value={place}
+            placeholder="장소"
+            onChange={(e) => setPlace(e.target.value)}
+            aria-label="장소"
+          />
+          <input
+            type="text"
+            value={note}
+            placeholder="메모"
+            onChange={(e) => setNote(e.target.value)}
+            aria-label="메모"
+          />
+        </div>
+      )}
       {pinned && !due && (
         <p className="hint">D-day로 고정하려면 기한이 있어야 합니다.</p>
       )}
@@ -283,6 +323,7 @@ function TodoRow({
   today: string
 }) {
   const todoApi = useTodos()
+  const [extra, setExtra] = useState(false)
   const due = dueDayOf(todo, boundaryHour)
   const remaining = due ? daysBetween(due, today) : null
   const overdue = remaining !== null && remaining < 0 && todo.status !== 'done'
@@ -297,11 +338,15 @@ function TodoRow({
         aria-label={`${todo.title} 완료 토글`}
       />
       <div className="todo__text">
-        <span className={todo.status === 'done' ? 'todo-title todo-title--done' : 'todo-title'}>
-          {todo.title}
+        <span className="todo-head">
+          <span className={todo.status === 'done' ? 'todo-title todo-title--done' : 'todo-title'}>
+            {todo.title}
+          </span>
+          <PlaceNoteButton todo={todo} open={extra} onToggle={() => setExtra((v) => !v)} />
         </span>
         {project && <span className="badge project-chip">{project.name}</span>}
         <DueEditor todo={todo} remaining={remaining} overdue={overdue} />
+        <PlaceNoteLine todo={todo} open={extra} onClose={() => setExtra(false)} />
       </div>
       <button
         type="button"

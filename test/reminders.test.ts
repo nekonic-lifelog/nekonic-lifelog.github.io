@@ -470,3 +470,67 @@ describe('설정 하위 호환', () => {
     expect(settings.dayBoundaryHour).toBe(DEFAULT_SETTINGS.dayBoundaryHour)
   })
 })
+
+describe('장소와 메모는 알림 파일에 실리지 않는다', () => {
+  const PLACE = '강남역 3번 출구'
+  const NOTE = '보험증 챙기기'
+
+  const withExtras = (over: Partial<Todo> = {}) =>
+    makeTodo({
+      title: '병원 예약',
+      dueAt: '2026-08-03T14:00:00+09:00',
+      place: PLACE,
+      note: NOTE,
+      ...over,
+    })
+
+  it('이벤트에 place와 note 키가 없다', () => {
+    const event = only(build([withExtras()]))
+
+    expect(Object.keys(event).sort()).toEqual(['at', 'channel', 'id', 'label', 'offsets'])
+    expect((event as unknown as Record<string, unknown>)['place']).toBeUndefined()
+    expect((event as unknown as Record<string, unknown>)['note']).toBeUndefined()
+  })
+
+  it('라벨에도 들어가지 않는다', () => {
+    expect(only(build([withExtras()])).label).toBe('병원 예약')
+  })
+
+  it('직렬화한 글에 장소와 메모 문자열이 없다', () => {
+    const text = serializeReminderFile(build([withExtras()]))
+
+    expect(text).not.toContain(PLACE)
+    expect(text).not.toContain(NOTE)
+    expect(text).not.toContain('강남역')
+    expect(text).not.toContain('보험증')
+    expect(text).toContain('병원 예약')
+  })
+
+  it('제목을 가리는 프로젝트 작업에서도 새지 않는다', () => {
+    const text = serializeReminderFile(
+      build([withExtras({ projectId: 'p1', title: '계약서 검토' })]),
+    )
+
+    expect(text).not.toContain(PLACE)
+    expect(text).not.toContain(NOTE)
+    expect(text).not.toContain('계약서 검토')
+    expect(text).toContain('업무')
+  })
+
+  it('가리지 않기로 해도 장소와 메모는 여전히 빠진다', () => {
+    const text = serializeReminderFile(
+      build([withExtras({ projectId: 'p1' })], { maskProjectLabels: false }),
+    )
+
+    expect(text).not.toContain(PLACE)
+    expect(text).not.toContain(NOTE)
+    expect(text).toContain('병원 예약')
+  })
+
+  it('두 파일이 같은지 볼 때도 장소와 메모는 셈에 들지 않는다', () => {
+    const bare = build([makeTodo({ id: 't1', title: '병원 예약', dueAt: '2026-08-03T14:00:00+09:00' })])
+    const rich = build([withExtras({ id: 't1' })])
+
+    expect(sameReminderFile(bare, rich)).toBe(true)
+  })
+})
