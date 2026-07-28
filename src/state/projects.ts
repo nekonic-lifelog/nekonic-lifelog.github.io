@@ -5,6 +5,7 @@ import { useApp } from './app'
 
 export interface NewProject {
   name: string
+  startAt?: string | undefined
   dueAt?: string | undefined
 }
 
@@ -14,7 +15,9 @@ export interface NewTask {
   assignee?: string | undefined
 }
 
-export type ProjectPatch = Partial<Pick<Project, 'name' | 'dueAt' | 'status' | 'order'>>
+export type ProjectPatch = Partial<
+  Pick<Project, 'name' | 'startAt' | 'dueAt' | 'status' | 'order'>
+>
 
 export interface ProjectsApi {
   addProject(input: NewProject): Promise<Project>
@@ -45,6 +48,7 @@ export function useProjects(): ProjectsApi {
           ...createBase(ctx),
           name: input.name.trim(),
           status: 'active',
+          startAt: input.startAt,
           dueAt: input.dueAt,
           order: maxOrder + 1,
         }

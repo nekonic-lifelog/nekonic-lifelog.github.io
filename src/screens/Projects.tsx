@@ -169,6 +169,7 @@ export function ProjectComposer({
 }) {
   const api = useProjects()
   const [name, setName] = useState('')
+  const [start, setStart] = useState('')
   const [due, setDue] = useState('')
   const [dueTime, setDueTime] = useState('')
 
@@ -177,11 +178,13 @@ export function ProjectComposer({
     void (async () => {
       const project = await api.addProject({
         name,
+        startAt: toDueAt(start),
         dueAt: toDueAt(due, dueTime),
       })
       onCreated?.(project)
     })()
     setName('')
+    setStart('')
     setDue('')
     setDueTime('')
   }
@@ -202,6 +205,12 @@ export function ProjectComposer({
         aria-label="프로젝트 이름"
       />
       <div className="composer__row">
+        <input
+          type="date"
+          value={start}
+          onChange={(e) => setStart(e.target.value)}
+          aria-label="프로젝트 시작일"
+        />
         <input
           type="date"
           value={due}
@@ -285,6 +294,15 @@ export function ProjectDetail({
         <span className="project-bar">
           <span className="project-bar__fill" style={{ width: `${progress.percent}%` }} />
         </span>
+        <label className="project-start todo-meta">
+          시작일
+          <input
+            type="date"
+            value={dueDateValue(project.startAt)}
+            aria-label="프로젝트 시작일"
+            onChange={(e) => void api.editProject(project, { startAt: toDueAt(e.target.value) })}
+          />
+        </label>
         <div className="project-status btn-row">
           {PROJECT_STATUSES.map((status) => (
             <button

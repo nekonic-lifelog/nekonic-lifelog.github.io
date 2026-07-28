@@ -168,6 +168,40 @@ describe('불러오기 — 옛 백업 파일', () => {
   })
 })
 
+describe('불러오기 — 프로젝트 시작일', () => {
+  const withProject = (project: Record<string, unknown>) =>
+    JSON.stringify({
+      v: 1,
+      exportedAt: '2026-03-12T11:00:00.000Z',
+      data: { definitions: [], records: [], todos: [], projects: [project] },
+    })
+
+  it('startAt이 없는 옛 프로젝트도 오류 없이 읽힌다', () => {
+    const raw = withProject({
+      id: 'p1',
+      v: 1,
+      createdAt: '2026-03-01T03:00:00.000Z',
+      deviceId: 'old',
+      updatedAt: '2026-03-01T03:00:00.000Z',
+      deleted: false,
+      name: '이사 준비',
+      status: 'active',
+      order: 0,
+    })
+    const parsed = parseBackup(raw)
+    expect(parsed.data.projects).toHaveLength(1)
+    expect(parsed.data.projects[0]?.startAt).toBeUndefined()
+    expect(parsed.data.projects[0]?.name).toBe('이사 준비')
+  })
+
+  it('startAt이 있으면 그대로 실려 온다', () => {
+    const snapshot = sampleSnapshot()
+    snapshot.projects = [makeProject({ id: 'p1', startAt: '2026-03-05T03:00:00.000Z' })]
+    const parsed = parseBackup(serializeBackup(snapshot, clock))
+    expect(parsed.data.projects[0]?.startAt).toBe('2026-03-05T03:00:00.000Z')
+  })
+})
+
 describe('내보내기 — 새 테이블', () => {
   it('세 테이블을 함께 실어 보내고 그대로 되읽는다', () => {
     const snapshot = sampleSnapshot()

@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import { daysBetween, logicalDay } from '../lib/day'
 import { formatDueLabel, toDueAt } from '../lib/due'
+import { groupTodosByDue } from '../lib/groupTodos'
 import { dueDayOf, formatRemaining } from '../lib/select'
 import { personalTodos, projectProgress, sortedProjects } from '../lib/selectProjects'
 import type { Project, Todo } from '../lib/types'
 import { useApp } from '../state/app'
 import { useTodos } from '../state/todos'
+import { Timeline } from '../ui/Timeline'
 import { AlertChips, DueEditor, ProjectComposer, ProjectDetail } from './Projects'
 import '../styles/projects.css'
 
@@ -16,17 +18,18 @@ export function Todos() {
   const [openId, setOpenId] = useState<string | null>(null)
   const boundaryHour = app.snapshot.settings.dayBoundaryHour
 
-  const { open, done } = useMemo(() => {
-    const all = personalTodos(app.snapshot)
-    return {
-      open: all
-        .filter((t) => t.status !== 'done')
-        .sort(byDue),
-      done: all
+  const groups = useMemo(
+    () => groupTodosByDue(app.snapshot, app.today, boundaryHour),
+    [app.snapshot, app.today, boundaryHour],
+  )
+
+  const done = useMemo(
+    () =>
+      personalTodos(app.snapshot)
         .filter((t) => t.status === 'done')
         .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? '')),
-    }
-  }, [app.snapshot])
+    [app.snapshot],
+  )
 
   const projects = useMemo(() => sortedProjects(app.snapshot), [app.snapshot])
   const opened = openId === null ? undefined : projects.find((p) => p.id === openId)
@@ -40,14 +43,28 @@ export function Todos() {
       <h1 className="screen__title">할 일</h1>
       <TodoComposer />
 
-      {open.length === 0 ? (
+      {groups.length === 0 ? (
         <p className="empty">할 일이 없습니다.</p>
       ) : (
-        <ul className="todo-list todo-list--full">
-          {open.map((todo) => (
-            <TodoRow key={todo.id} todo={todo} boundaryHour={boundaryHour} today={app.today} />
-          ))}
-        </ul>
+        groups.map((group) => (
+          <section key={group.key} className="card todo-group">
+            <div className="card__head">
+              <h2>{group.title}</h2>
+              <span className="project-count">{group.items.length}</span>
+            </div>
+            <ul className="todo-list">
+              {group.items.map((item) => (
+                <TodoRow
+                  key={item.todo.id}
+                  todo={item.todo}
+                  project={item.project}
+                  boundaryHour={boundaryHour}
+                  today={app.today}
+                />
+              ))}
+            </ul>
+          </section>
+        ))
       )}
 
       {done.length > 0 && (
@@ -74,6 +91,8 @@ export function Todos() {
           )}
         </section>
       )}
+
+      <Timeline onOpen={(project) => setOpenId(project.id)} />
 
       <section className="card project-section">
         <div className="card__head">
@@ -114,13 +133,6 @@ export function Todos() {
       </section>
     </div>
   )
-}
-
-function byDue(a: Todo, b: Todo): number {
-  if (!a.dueAt && !b.dueAt) return a.createdAt.localeCompare(b.createdAt)
-  if (!a.dueAt) return 1
-  if (!b.dueAt) return -1
-  return a.dueAt.localeCompare(b.dueAt)
 }
 
 function ProjectCard({
@@ -242,10 +254,12 @@ function TodoComposer() {
 
 function TodoRow({
   todo,
+  project,
   boundaryHour,
   today,
 }: {
   todo: Todo
+  project?: Project | undefined
   boundaryHour: number
   today: string
 }) {
@@ -267,6 +281,7 @@ function TodoRow({
         <span className={todo.status === 'done' ? 'todo-title todo-title--done' : 'todo-title'}>
           {todo.title}
         </span>
+        {project && <span className="badge project-chip">{project.name}</span>}
         <DueEditor todo={todo} remaining={remaining} overdue={overdue} />
       </div>
       <button

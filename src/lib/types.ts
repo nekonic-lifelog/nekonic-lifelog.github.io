@@ -56,6 +56,7 @@ export type ProjectStatus = 'active' | 'held' | 'done'
 export interface Project extends Base {
   name: string
   status: ProjectStatus
+  startAt?: string | undefined
   dueAt?: string | undefined
   order: number
 }
