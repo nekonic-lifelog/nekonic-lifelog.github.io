@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { daysBetween, logicalDay } from '../lib/day'
-import { dueDateValue, dueTimeValue, formatDueLabel, toDueAt } from '../lib/due'
+import { ddayLabel, dueDateValue, dueTimeValue, formatDueLabel, toDueAt } from '../lib/due'
 import { formatRemaining } from '../lib/select'
 import {
   checklistProgress,
@@ -184,7 +184,11 @@ export function DueEditor({
         {todo.dueAt ? formatDueLabel(todo.dueAt) : '기한 없음'}
       </button>
       {remaining !== null && todo.status !== 'done' && (
-        <span className={overdue ? 'dday-chip dday-chip--past' : 'dday-chip'}>
+        <span
+          className={overdue ? 'dday-chip dday-chip--past' : 'dday-chip'}
+          role="img"
+          aria-label={ddayLabel(remaining)}
+        >
           {formatRemaining(remaining)}
         </span>
       )}
@@ -402,7 +406,10 @@ export function ProjectDetail({
           {due && project.dueAt && (
             <span className="todo-due">
               {formatDueLabel(project.dueAt)}
-              <span className={overdue ? 'dday-chip dday-chip--past' : 'dday-chip'}>
+              <span
+                className={overdue ? 'dday-chip dday-chip--past' : 'dday-chip'}
+                {...(remaining === null ? {} : { role: 'img', 'aria-label': ddayLabel(remaining) })}
+              >
                 {remaining === null ? '' : formatRemaining(remaining)}
               </span>
               <AlertChips dueAt={project.dueAt} done={project.status === 'done'} />

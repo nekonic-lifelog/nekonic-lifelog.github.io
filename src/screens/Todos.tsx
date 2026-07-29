@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { daysBetween, logicalDay } from '../lib/day'
-import { formatDueLabel, toDueAt } from '../lib/due'
+import { ddayLabel, formatDueLabel, toDueAt } from '../lib/due'
 import { groupTodosByDue } from '../lib/groupTodos'
 import { dueDayOf, formatRemaining } from '../lib/select'
 import {
@@ -227,7 +227,11 @@ function ProjectCard({
           <span className="todo-due">
             {formatDueLabel(project.dueAt)}
             {remaining !== null && project.status !== 'done' && (
-              <span className={overdue ? 'dday-chip dday-chip--past' : 'dday-chip'}>
+              <span
+                className={overdue ? 'dday-chip dday-chip--past' : 'dday-chip'}
+                role="img"
+                aria-label={ddayLabel(remaining)}
+              >
                 {formatRemaining(remaining)}
               </span>
             )}

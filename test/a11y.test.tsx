@@ -10,7 +10,7 @@ import { DEFAULT_SETTINGS } from '../src/lib/types'
 import { DDay } from '../src/screens/DDay'
 import { Timer } from '../src/screens/Timer'
 import { AppProvider } from '../src/state/app'
-import { makeTodo, resetIds } from './factories'
+import { makeProject, makeTodo, resetIds } from './factories'
 
 const NOW = '2026-03-12T20:00:00+09:00'
 
@@ -74,6 +74,34 @@ describe('D-day 칩 — 부호만으로 구분하지 않는다', () => {
     mount(DDay, snap({ todos: [makeTodo({ title: '지난 일', pinned: true, dueAt: '2026-03-10T09:00:00+09:00' })] }))
 
     expect(await screen.findByLabelText('2일 지남')).toBeTruthy()
+  })
+})
+
+describe('D-day 칩 — 화면마다 빠짐없이 붙는다', () => {
+  it('할 일 탭의 기한 칩에도 문장이 붙는다', async () => {
+    const { Todos } = await import('../src/screens/Todos')
+    mount(Todos, snap({ todos: [makeTodo({ title: '세금', dueAt: '2026-03-15T09:00:00+09:00' })] }))
+
+    expect(await screen.findByLabelText('3일 남음')).toBeTruthy()
+  })
+
+  it('지난 기한도 지났다고 읽힌다', async () => {
+    const { Todos } = await import('../src/screens/Todos')
+    mount(Todos, snap({ todos: [makeTodo({ title: '지난 것', dueAt: '2026-03-10T09:00:00+09:00' })] }))
+
+    expect(await screen.findByLabelText('2일 지남')).toBeTruthy()
+  })
+
+  it('프로젝트 마감 칩에도 문장이 붙는다', async () => {
+    const { Todos } = await import('../src/screens/Todos')
+    mount(
+      Todos,
+      snap({
+        projects: [makeProject({ name: '이사', dueAt: '2026-03-14T09:00:00+09:00' })],
+      }),
+    )
+
+    expect(await screen.findByLabelText('2일 남음')).toBeTruthy()
   })
 })
 
