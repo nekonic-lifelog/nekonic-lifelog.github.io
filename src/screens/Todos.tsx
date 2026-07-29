@@ -14,17 +14,27 @@ import type { Project, Todo } from '../lib/types'
 import { useApp } from '../state/app'
 import { useTodos } from '../state/todos'
 import { Timeline } from '../ui/Timeline'
+import { UndoProvider, useUndo } from '../ui/Undo'
 import {
   AlertChips,
   DueEditor,
   PlaceNoteButton,
   PlaceNoteLine,
+  ProgressBar,
   ProjectComposer,
   ProjectDetail,
 } from './Projects'
 import '../styles/projects.css'
 
 export function Todos() {
+  return (
+    <UndoProvider>
+      <TodosScreen />
+    </UndoProvider>
+  )
+}
+
+function TodosScreen() {
   const app = useApp()
   const [showDone, setShowDone] = useState(false)
   const [composing, setComposing] = useState(false)
@@ -105,7 +115,7 @@ export function Todos() {
         </section>
       )}
 
-      <Timeline onOpen={(project) => setOpenId(project.id)} />
+      <TimelineFold onOpen={(project) => setOpenId(project.id)} />
 
       <section className="card project-section">
         <div className="card__head">
@@ -145,6 +155,26 @@ export function Todos() {
         )}
       </section>
     </div>
+  )
+}
+
+function TimelineFold({ onOpen }: { onOpen(project: Project): void }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <section className="card tl-fold">
+      <div className="card__head">
+        <button
+          type="button"
+          className="link-btn"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          일정 보기 {open ? '접기' : '펼치기'}
+        </button>
+      </div>
+      {open && <Timeline onOpen={onOpen} />}
+    </section>
   )
 }
 
@@ -191,9 +221,7 @@ function ProjectCard({
             </span>
           </span>
         </span>
-        <span className="project-bar">
-          <span className="project-bar__fill" style={{ width: `${progress.percent}%` }} />
-        </span>
+        <ProgressBar name={project.name} percent={progress.percent} />
         {summary !== '' && <span className="project-card__note">{summary}</span>}
         {due && project.dueAt && (
           <span className="todo-due">
@@ -323,17 +351,40 @@ function TodoRow({
   today: string
 }) {
   const todoApi = useTodos()
+  const undo = useUndo()
   const [extra, setExtra] = useState(false)
   const due = dueDayOf(todo, boundaryHour)
   const remaining = due ? daysBetween(due, today) : null
   const overdue = remaining !== null && remaining < 0 && todo.status !== 'done'
+
+  const toggleDone = () => {
+    if (todo.status === 'done') {
+      undo.clear()
+      void todoApi.setTodoStatus(todo, 'todo')
+      return
+    }
+    const before = todo.status
+    void todoApi.setTodoStatus(todo, 'done')
+    undo.offer({
+      label: `${todo.title} 완료함`,
+      run: () => todoApi.setTodoStatus(todo, before),
+    })
+  }
+
+  const remove = () => {
+    void todoApi.removeTodo(todo)
+    undo.offer({
+      label: `${todo.title} 지움`,
+      run: () => todoApi.editTodo(todo, { deleted: false }),
+    })
+  }
 
   return (
     <li className={overdue ? 'todo todo--overdue' : 'todo'}>
       <button
         type="button"
         className={todo.status === 'done' ? 'check check--on' : 'check'}
-        onClick={() => void todoApi.setTodoStatus(todo, todo.status === 'done' ? 'todo' : 'done')}
+        onClick={toggleDone}
         aria-pressed={todo.status === 'done'}
         aria-label={`${todo.title} 완료 토글`}
       />
@@ -362,7 +413,7 @@ function TodoRow({
       <button
         type="button"
         className="icon-btn icon-btn--danger"
-        onClick={() => void todoApi.removeTodo(todo)}
+        onClick={remove}
         aria-label={`${todo.title} 삭제`}
       >
         ×

@@ -409,3 +409,41 @@
   width: auto;
   min-width: 0;
 }
+
+.undo-bar {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 10px);
+  z-index: 20;
+  max-width: 608px;
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 25%);
+}
+
+.undo-bar__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.undo-bar__btn {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 4px 12px;
+  font-size: 14px;
+  white-space: nowrap;
+  border-color: var(--accent);
+  color: var(--accent);
+}
