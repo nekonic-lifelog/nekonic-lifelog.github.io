@@ -7,6 +7,8 @@ import {
   lastNDays,
   logicalDay,
   todayKey,
+  weekdayLabel,
+  weekdayOf,
   type DayKey,
 } from './day'
 import {
@@ -16,10 +18,11 @@ import {
   dayStatus,
   isScored,
   isTargetDay,
+  statusFrom,
   tallyValue,
   type StreakOptions,
 } from './streak'
-import type { Aggregate, Book, Definition, JournalKind, LogRecord } from './types'
+import type { Aggregate, Book, Definition, JournalKind, LogRecord, Todo } from './types'
 
 export type Period = 'week' | 'month' | 'year'
 
@@ -32,22 +35,37 @@ function dayKey(year: number, month: number, day: number): DayKey {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
-export function rangeFor(period: Period, today: DayKey): Range {
+function monthStart(total: number): DayKey {
+  const year = Math.floor(total / 12)
+  const month = ((total % 12) + 12) % 12
+  return dayKey(year, month + 1, 1)
+}
+
+export function rangeFor(period: Period, today: DayKey, offset = 0): Range {
+  const back = Math.min(0, Math.trunc(offset))
   const date = dayKeyToDate(today)
   const year = date.getFullYear()
   const month = date.getMonth() + 1
 
   if (period === 'week') {
-    const from = addDays(today, -((date.getDay() + 6) % 7))
+    const start = addDays(today, -((date.getDay() + 6) % 7))
+    const from = addDays(start, back * 7)
     return { from, to: addDays(from, 6) }
   }
 
   if (period === 'month') {
-    const next = month === 12 ? dayKey(year + 1, 1, 1) : dayKey(year, month + 1, 1)
-    return { from: dayKey(year, month, 1), to: addDays(next, -1) }
+    const total = year * 12 + (month - 1) + back
+    return { from: monthStart(total), to: addDays(monthStart(total + 1), -1) }
   }
 
-  return { from: dayKey(year, 1, 1), to: dayKey(year, 12, 31) }
+  const shifted = year + back
+  return { from: dayKey(shifted, 1, 1), to: dayKey(shifted, 12, 31) }
+}
+
+export function rangeLabel(period: Period, range: Range): string {
+  if (period === 'year') return range.from.slice(0, 4)
+  if (period === 'month') return range.from.slice(0, 7)
+  return `${range.from} 주`
 }
 
 export function daysIn(range: Range): DayKey[] {
@@ -160,6 +178,144 @@ export function habitStats(
   }
 
   return stats
+}
+
+export interface HeatCell {
+  day: DayKey
+  weekday: number
+  count: number
+  value: number
+  achieved: boolean
+  isTargetDay: boolean
+  future: boolean
+  counted: boolean
+}
+
+export interface HeatWeek {
+  from: DayKey
+  cells: (HeatCell | null)[]
+}
+
+export interface HeatTotals {
+  targetDays: number
+  achievedDays: number
+  recordedDays: number
+}
+
+function slotOf(day: DayKey): number {
+  return (weekdayOf(day) + 6) % 7
+}
+
+export function heatmapFor(
+  def: Definition,
+  records: LogRecord[],
+  range: Range,
+  opts: StreakOptions,
+): HeatWeek[] {
+  const { boundaryHour } = opts
+  const today = todayKey(opts.clock, boundaryHour)
+  const own = recordsOf(def, records)
+  const totals = dailyTotals(def, own, boundaryHour)
+  const floor = firstCountedDay(def, own, boundaryHour)
+  const weeks: HeatWeek[] = []
+  let current: HeatWeek | null = null
+
+  for (const day of daysIn(range)) {
+    const slot = slotOf(day)
+    if (current === null || slot === 0) {
+      current = { from: addDays(day, -slot), cells: [null, null, null, null, null, null, null] }
+      weeks.push(current)
+    }
+
+    const status = statusFrom(def, day, totals, boundaryHour)
+    const future = day > today
+    current.cells[slot] = {
+      day,
+      weekday: weekdayOf(day),
+      count: status.count,
+      value: status.total,
+      achieved: status.achieved,
+      isTargetDay: status.isTargetDay,
+      future,
+      counted: !future && day >= floor && status.isTargetDay,
+    }
+  }
+
+  return weeks
+}
+
+export function heatTotals(weeks: HeatWeek[]): HeatTotals {
+  let targetDays = 0
+  let achievedDays = 0
+  let recordedDays = 0
+
+  for (const week of weeks) {
+    for (const cell of week.cells) {
+      if (cell === null) continue
+      if (cell.count > 0) recordedDays += 1
+      if (!cell.counted) continue
+      targetDays += 1
+      if (cell.achieved) achievedDays += 1
+    }
+  }
+
+  return { targetDays, achievedDays, recordedDays }
+}
+
+export interface WeekdayStat {
+  weekday: number
+  label: string
+  targetDays: number
+  achievedDays: number
+  percent: number
+}
+
+const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
+
+export function weekdayStats(
+  def: Definition,
+  records: LogRecord[],
+  range: Range,
+  opts: StreakOptions,
+): WeekdayStat[] {
+  const { boundaryHour } = opts
+  const today = todayKey(opts.clock, boundaryHour)
+  const own = recordsOf(def, records)
+  const totals = dailyTotals(def, own, boundaryHour)
+  const floor = firstCountedDay(def, own, boundaryHour)
+  const target = new Map<number, number>()
+  const achieved = new Map<number, number>()
+
+  for (const day of daysIn(range)) {
+    if (day > today || day < floor) continue
+    if (!isTargetDay(def, day)) continue
+    const weekday = weekdayOf(day)
+    target.set(weekday, (target.get(weekday) ?? 0) + 1)
+    if (statusFrom(def, day, totals, boundaryHour).achieved) {
+      achieved.set(weekday, (achieved.get(weekday) ?? 0) + 1)
+    }
+  }
+
+  return WEEKDAY_ORDER.map((weekday) => {
+    const targetDays = target.get(weekday) ?? 0
+    const achievedDays = achieved.get(weekday) ?? 0
+    return {
+      weekday,
+      label: weekdayLabel(weekday),
+      targetDays,
+      achievedDays,
+      percent: percentOf(achievedDays, targetDays),
+    }
+  })
+}
+
+export function weakestWeekday(stats: WeekdayStat[]): WeekdayStat | null {
+  let weakest: WeekdayStat | null = null
+  for (const stat of stats) {
+    if (stat.targetDays === 0) continue
+    if (weakest === null || stat.percent < weakest.percent) weakest = stat
+  }
+  return weakest
 }
 
 export interface MeasurePoint {
@@ -289,6 +445,111 @@ export function summaryFor(stats: HabitStat[]): Summary {
   }
 }
 
+export interface OldestOpen {
+  todo: Todo
+  ageDays: number
+}
+
+export interface TodoStat {
+  completed: number
+  created: number
+  open: number
+  judged: number
+  onTime: number
+  late: number
+  onTimePercent: number | null
+  noDue: number
+  leadTimeDays: number | null
+  leadTimeSamples: number
+  backfilled: number
+  doneWithoutTime: number
+  oldestOpen: OldestOpen | null
+}
+
+function medianOf(values: number[]): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  if (sorted.length % 2 === 1) return sorted[mid]!
+  return (sorted[mid - 1]! + sorted[mid]!) / 2
+}
+
+export function todoStats(
+  snapshot: Snapshot,
+  range: Range,
+  opts: StreakOptions,
+): TodoStat {
+  const { boundaryHour } = opts
+  const today = todayKey(opts.clock, boundaryHour)
+  const leads: number[] = []
+  let completed = 0
+  let created = 0
+  let open = 0
+  let onTime = 0
+  let late = 0
+  let noDue = 0
+  let backfilled = 0
+  let doneWithoutTime = 0
+  let oldest: Todo | null = null
+
+  for (const todo of snapshot.todos) {
+    if (todo.deleted) continue
+    if (holds(range, logicalDay(todo.createdAt, boundaryHour))) created += 1
+
+    if (todo.status !== 'done') {
+      open += 1
+      if (oldest === null || new Date(todo.createdAt) < new Date(oldest.createdAt)) {
+        oldest = todo
+      }
+      continue
+    }
+
+    if (todo.doneAt === undefined) {
+      doneWithoutTime += 1
+      continue
+    }
+
+    const doneDay = logicalDay(todo.doneAt, boundaryHour)
+    if (!holds(range, doneDay)) continue
+    completed += 1
+
+    if (todo.dueAt === undefined) noDue += 1
+    else if (doneDay <= logicalDay(todo.dueAt, boundaryHour)) onTime += 1
+    else late += 1
+
+    const span = daysBetween(doneDay, logicalDay(todo.createdAt, boundaryHour))
+    if (span < 0) backfilled += 1
+    leads.push(Math.max(0, span))
+  }
+
+  const judged = onTime + late
+
+  return {
+    completed,
+    created,
+    open,
+    judged,
+    onTime,
+    late,
+    onTimePercent: judged > 0 ? percentOf(onTime, judged) : null,
+    noDue,
+    leadTimeDays: medianOf(leads),
+    leadTimeSamples: leads.length,
+    backfilled,
+    doneWithoutTime,
+    oldestOpen:
+      oldest === null
+        ? null
+        : {
+            todo: oldest,
+            ageDays: Math.max(
+              0,
+              daysBetween(today, logicalDay(oldest.createdAt, boundaryHour)),
+            ),
+          },
+  }
+}
+
 export interface JournalStat {
   diaryDays: number
   entries: number
@@ -357,4 +618,122 @@ export function readingStats(
     .sort((a, b) => b.pages - a.pages || a.book.title.localeCompare(b.book.title))
 
   return { pagesRead, sessions, finishedBooks, byBook }
+}
+
+export interface BookPace {
+  book: Book
+  read: number
+  remaining: number | null
+  perDay: number
+  expectedDay: DayKey | null
+}
+
+export interface FinishedBook {
+  book: Book
+  days: number | null
+}
+
+export interface ReadingDetail {
+  elapsedDays: number
+  pagesPerDay: number
+  ratings: number[]
+  rated: number
+  averageRating: number | null
+  pace: BookPace[]
+  finished: FinishedBook[]
+}
+
+export const RATING_STARS = 5
+
+function starOf(rating: number | undefined): number | null {
+  if (rating === undefined || !Number.isFinite(rating)) return null
+  const star = Math.round(rating)
+  return star >= 1 && star <= RATING_STARS ? star : null
+}
+
+export function readingDetail(
+  snapshot: Snapshot,
+  range: Range,
+  opts: StreakOptions,
+): ReadingDetail {
+  const { boundaryHour } = opts
+  const today = todayKey(opts.clock, boundaryHour)
+  const goneDefIds = new Set(
+    snapshot.definitions.filter((d) => d.deleted).map((d) => d.id),
+  )
+  const books = snapshot.books.filter((b) => !b.deleted && !goneDefIds.has(b.defId))
+  const shelfDefIds = new Set(books.map((b) => b.defId))
+  const elapsedDays = daysIn(range).filter((day) => day <= today).length
+
+  const readByDef = new Map<string, number>()
+  const inRangeByDef = new Map<string, number>()
+  let pagesRead = 0
+
+  for (const record of snapshot.records) {
+    if (record.deleted || !shelfDefIds.has(record.defId)) continue
+    readByDef.set(record.defId, (readByDef.get(record.defId) ?? 0) + record.value)
+    if (!holds(range, logicalDay(record.at, boundaryHour))) continue
+    inRangeByDef.set(record.defId, (inRangeByDef.get(record.defId) ?? 0) + record.value)
+    pagesRead += record.value
+  }
+
+  const ratings = new Array<number>(RATING_STARS).fill(0)
+  let rated = 0
+  let ratingTotal = 0
+
+  for (const book of books) {
+    const star = starOf(book.rating)
+    if (star === null) continue
+    ratings[star - 1] = (ratings[star - 1] ?? 0) + 1
+    rated += 1
+    ratingTotal += star
+  }
+
+  const pace: BookPace[] = []
+  const finished: FinishedBook[] = []
+
+  for (const book of books) {
+    if (book.status === 'reading') {
+      const read = readByDef.get(book.defId) ?? 0
+      const remaining =
+        book.totalPages === undefined ? null : Math.max(0, book.totalPages - read)
+      const perDay =
+        elapsedDays > 0 ? (inRangeByDef.get(book.defId) ?? 0) / elapsedDays : 0
+      const expectedDay =
+        remaining === null
+          ? null
+          : remaining === 0
+            ? today
+            : perDay > 0
+              ? addDays(today, Math.ceil(remaining / perDay))
+              : null
+      pace.push({ book, read, remaining, perDay, expectedDay })
+    }
+
+    const finishedAt = book.finishedAt
+    if (finishedAt === undefined) continue
+    const finishedDay = logicalDay(finishedAt, boundaryHour)
+    if (!holds(range, finishedDay)) continue
+    const startedAt = book.startedAt
+    finished.push({
+      book,
+      days:
+        startedAt === undefined
+          ? null
+          : Math.max(1, daysBetween(finishedDay, logicalDay(startedAt, boundaryHour)) + 1),
+    })
+  }
+
+  const byTitle = (a: { book: Book }, b: { book: Book }) =>
+    a.book.title.localeCompare(b.book.title)
+
+  return {
+    elapsedDays,
+    pagesPerDay: elapsedDays > 0 ? pagesRead / elapsedDays : 0,
+    ratings,
+    rated,
+    averageRating: rated > 0 ? ratingTotal / rated : null,
+    pace: pace.sort(byTitle),
+    finished: finished.sort(byTitle),
+  }
 }
