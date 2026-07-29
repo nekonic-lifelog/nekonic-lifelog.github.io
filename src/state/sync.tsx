@@ -14,6 +14,7 @@ import type { Clock } from '../lib/clock'
 import { GithubRepo } from '../remote/github'
 import {
   idbCredentials,
+  idbSyncCache,
   type CredentialStore,
   type Credentials,
   type RemoteConfig,
@@ -50,6 +51,7 @@ export interface SyncApi {
   connect(input: ConnectInput): Promise<void>
   connectWithKey(input: ConnectWithKeyInput): Promise<void>
   disconnect(): Promise<void>
+  resyncAll(): Promise<void>
   syncNow(): Promise<void>
   markDirty(): void
   retryAuth(token: string): Promise<void>
@@ -106,6 +108,7 @@ export function SyncProvider(props: SyncProviderProps) {
   const aliveRef = useRef(true)
 
   const vault = useMemo(() => credentials ?? idbCredentials(), [credentials])
+  const syncCache = useMemo(() => cache ?? idbSyncCache(), [cache])
   const build = useMemo(() => makeRepo ?? defaultRepo, [makeRepo])
 
   const snapshotRef = useRef(onSnapshot)
@@ -123,7 +126,7 @@ export function SyncProvider(props: SyncProviderProps) {
         clock,
         ...(debounceMs === undefined ? {} : { debounceMs }),
         ...(recentMonths === undefined ? {} : { recentMonths }),
-        ...(cache === undefined ? {} : { cache }),
+        cache: syncCache,
         onState: (s) => {
           if (aliveRef.current) setState(s)
         },
@@ -140,7 +143,7 @@ export function SyncProvider(props: SyncProviderProps) {
       if (!autoBackfill || engineRef.current !== engine) return
       void engine.backfill()
     },
-    [store, clock, build, debounceMs, recentMonths, cache, autoBackfill],
+    [store, clock, build, debounceMs, recentMonths, syncCache, autoBackfill],
   )
 
   useEffect(() => {
@@ -234,8 +237,19 @@ export function SyncProvider(props: SyncProviderProps) {
         engineRef.current?.stop()
         engineRef.current = null
         await vault.clear()
+        await syncCache.clear()
         setConnected(false)
         setState(initialSyncState())
+      },
+
+      async resyncAll() {
+        const saved = await vault.load()
+        if (saved === null) return
+        engineRef.current?.stop()
+        engineRef.current = null
+        await syncCache.clear()
+        setState(initialSyncState())
+        await start(saved)
       },
 
       async syncNow() {

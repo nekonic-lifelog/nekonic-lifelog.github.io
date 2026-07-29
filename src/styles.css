@@ -611,6 +611,15 @@ input[type='text'] {
   color: var(--muted);
 }
 
+.resync {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
 .scale-field {
   display: flex;
   flex-direction: column;

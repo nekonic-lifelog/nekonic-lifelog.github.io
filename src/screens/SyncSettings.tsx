@@ -54,9 +54,48 @@ export function SyncSettings() {
               기기 연결 (QR · 수동 입력)
             </button>
           </div>
+
+          {sync.connected && <ResyncRow onResync={() => void sync.resyncAll()} />}
         </section>
       )}
     </>
+  )
+}
+
+function ResyncRow({ onResync }: { onResync(): void }) {
+  const [asking, setAsking] = useState(false)
+
+  if (!asking) {
+    return (
+      <div className="btn-row">
+        <button type="button" className="link-btn" onClick={() => setAsking(true)}>
+          전부 다시 받기
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="resync">
+      <p className="hint">
+        이미 읽었다는 표시를 지우고 저장소를 처음부터 다시 읽습니다. 이 기기에 있는 기록은
+        지우지 않습니다. 폰에는 있는데 이 기기에 안 보이는 것이 있을 때 씁니다.
+      </p>
+      <div className="btn-row">
+        <button
+          type="button"
+          onClick={() => {
+            setAsking(false)
+            onResync()
+          }}
+        >
+          다시 받기
+        </button>
+        <button type="button" onClick={() => setAsking(false)}>
+          취소
+        </button>
+      </div>
+    </div>
   )
 }
 
