@@ -24,7 +24,12 @@ function dotView(state: SyncState): DotView {
   if (state.lastError !== null) {
     return { label: `동기화 문제 · ${state.lastError}`, tone: 'warn' }
   }
-  if (state.backfilling) return { label: '지난 기록을 받는 중', tone: 'warn' }
+  if (state.backfilling !== null) {
+    const { done, total } = state.backfilling
+    const label =
+      total > 0 ? `지난 기록 받는 중 ${total}개 중 ${done}개` : '지난 기록을 받는 중'
+    return { label, tone: 'warn' }
+  }
   if (state.pendingCount > 0) {
     return { label: `못 올린 변경 ${state.pendingCount}건`, tone: 'warn' }
   }

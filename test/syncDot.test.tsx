@@ -47,8 +47,14 @@ describe('앱바 동기화 표시', () => {
     expect(screen.getByRole('status').getAttribute('aria-label')).toContain('막힘')
   })
 
-  it('지난 기록을 받는 중이면 그렇게 알린다', () => {
+  it('지난 기록을 받는 중이면 어디까지 왔는지 알린다', () => {
     render(dot({ backfilling: { done: 2, total: 7 } }))
+
+    expect(screen.getByRole('status').getAttribute('aria-label')).toBe('지난 기록 받는 중 7개 중 2개')
+  })
+
+  it('받을 것이 몇 개인지 모르면 개수 없이 알린다', () => {
+    render(dot({ backfilling: { done: 0, total: 0 } }))
 
     expect(screen.getByRole('status').getAttribute('aria-label')).toBe('지난 기록을 받는 중')
   })
