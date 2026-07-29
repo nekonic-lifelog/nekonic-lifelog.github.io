@@ -13,18 +13,46 @@ import type { GithubRepo } from '../remote/github'
 import { AuthError } from '../remote/types'
 import type { CommitPlan, PutFile, RemoteHead, TreeEntry } from '../remote/types'
 import { idbSyncCache, type SyncCache } from './credentials'
-import { mergeSnapshots, ownRows } from './merge'
+import { mergeSnapshots, ownRows, type Clash } from './merge'
 import { TABLE_ORDER, groupByPath, parsePath, pathFor } from './paths'
 
 export type SyncPhase = 'idle' | 'pulling' | 'pushing' | 'error'
+export type SyncDirection = 'pull' | 'push'
+export type SyncOutcome = 'ok' | 'partial' | 'failed'
+
+export interface SyncEvent {
+  at: string
+  direction: SyncDirection
+  outcome: SyncOutcome
+  read: number
+  wrote: number
+  skipped: number
+  error: string | null
+}
+
+export interface BackfillProgress {
+  done: number
+  total: number
+}
 
 export interface SyncState {
   phase: SyncPhase
   lastSuccessAt: string | null
+  lastAttemptAt: string | null
   pendingCount: number
   authFailed: boolean
   lastError: string | null
-  backfilling: boolean
+  skipped: string[]
+  clashes: Clash[]
+  history: SyncEvent[]
+  backfilling: BackfillProgress | null
+}
+
+interface Report {
+  read: number
+  wrote: number
+  skipped: string[]
+  clashes: Clash[]
 }
 
 export interface SyncEngineOptions {
@@ -44,6 +72,8 @@ type RowBag = Partial<Record<TableName, Base[]>>
 
 const DEFAULT_DEBOUNCE = 4000
 const DEFAULT_RECENT_MONTHS = 3
+export const HISTORY_LIMIT = 20
+export const CLASH_LIMIT = 20
 const MONTH_RE = /^\d{4}-(?:0[1-9]|1[0-2])$/
 const COMMIT_MESSAGE = '기록 동기화'
 
@@ -67,11 +97,24 @@ export function initialSyncState(): SyncState {
   return {
     phase: 'idle',
     lastSuccessAt: null,
+    lastAttemptAt: null,
     pendingCount: 0,
     authFailed: false,
     lastError: null,
-    backfilling: false,
+    skipped: [],
+    clashes: [],
+    history: [],
+    backfilling: null,
   }
+}
+
+export function skippedMessage(paths: string[]): string {
+  if (paths.length === 0) return ''
+  if (paths.length === 1) return `${paths[0]} 파일을 열지 못해 건너뛰었습니다.`
+  const head = paths.slice(0, 3).join(', ')
+  const rest = paths.length - 3
+  const tail = rest > 0 ? ` 외 ${rest}개` : ''
+  return `파일 ${paths.length}개를 열지 못해 건너뛰었습니다: ${head}${tail}`
 }
 
 function repoPath(path: string): string {
@@ -147,11 +190,11 @@ export class SyncEngine {
   }
 
   pull(): Promise<void> {
-    return this.#enqueue(() => this.#guard('pulling', () => this.#pull(false)))
+    return this.#enqueue(() => this.#guard('pulling', 'pull', () => this.#pull(false, false)))
   }
 
   push(): Promise<void> {
-    return this.#enqueue(() => this.#guard('pushing', () => this.#push()))
+    return this.#enqueue(() => this.#guard('pushing', 'push', () => this.#push()))
   }
 
   async syncNow(): Promise<void> {
@@ -163,11 +206,11 @@ export class SyncEngine {
   backfill(): Promise<void> {
     return this.#enqueue(async () => {
       if (this.#state.authFailed || this.#stopped) return
-      this.#patch({ backfilling: true })
+      this.#patch({ backfilling: { done: 0, total: 0 } })
       try {
-        await this.#guard('pulling', () => this.#pull(true))
+        await this.#guard('pulling', 'pull', () => this.#pull(true, true))
       } finally {
-        this.#patch({ backfilling: false })
+        this.#patch({ backfilling: null })
       }
     })
   }
@@ -197,23 +240,68 @@ export class SyncEngine {
     this.#opts.onState?.(this.state)
   }
 
-  async #guard(phase: SyncPhase, work: () => Promise<string | null>): Promise<void> {
+  #stamp(): string {
+    return new Date(this.#opts.clock.now()).toISOString()
+  }
+
+  #logged(event: SyncEvent): SyncEvent[] {
+    return [event, ...this.#state.history].slice(0, HISTORY_LIMIT)
+  }
+
+  #kept(found: Clash[]): Clash[] {
+    if (found.length === 0) return this.#state.clashes
+    return [...found, ...this.#state.clashes].slice(0, CLASH_LIMIT)
+  }
+
+  async #guard(
+    phase: SyncPhase,
+    direction: SyncDirection,
+    work: () => Promise<Report>,
+  ): Promise<void> {
     if (this.#state.authFailed || this.#stopped) return
     this.#patch({ phase })
     try {
-      const soft = await work()
+      const report = await work()
+      const at = this.#stamp()
+      const partial = report.skipped.length > 0
+      const message = partial ? skippedMessage(report.skipped) : null
       this.#patch({
         phase: 'idle',
-        lastError: soft,
-        lastSuccessAt: new Date(this.#opts.clock.now()).toISOString(),
+        lastError: message,
+        skipped: report.skipped,
+        clashes: this.#kept(report.clashes),
+        lastAttemptAt: at,
+        lastSuccessAt: partial ? this.#state.lastSuccessAt : at,
+        history: this.#logged({
+          at,
+          direction,
+          outcome: partial ? 'partial' : 'ok',
+          read: report.read,
+          wrote: report.wrote,
+          skipped: report.skipped.length,
+          error: message,
+        }),
       })
     } catch (err) {
-      if (err instanceof AuthError) {
-        this.#clearTimer()
-        this.#patch({ phase: 'error', authFailed: true, lastError: AUTH_MESSAGE })
-        return
-      }
-      this.#patch({ phase: 'idle', lastError: reason(err) })
+      const at = this.#stamp()
+      const blocked = err instanceof AuthError
+      const message = blocked ? AUTH_MESSAGE : reason(err)
+      if (blocked) this.#clearTimer()
+      this.#patch({
+        phase: blocked ? 'error' : 'idle',
+        authFailed: blocked,
+        lastError: message,
+        lastAttemptAt: at,
+        history: this.#logged({
+          at,
+          direction,
+          outcome: 'failed',
+          read: 0,
+          wrote: 0,
+          skipped: 0,
+          error: message,
+        }),
+      })
     }
   }
 
@@ -262,40 +350,50 @@ export class SyncEngine {
     })
   }
 
-  async #pull(full: boolean): Promise<string | null> {
+  async #pull(full: boolean, watch: boolean): Promise<Report> {
     const head = await this.#opts.repo.readHead()
     const entries = await this.#entries(head)
     const cache = await this.#cache.load()
     const wide = full || cache.backfilled
     const blobs = { ...cache.blobs }
     const bag: RowBag = {}
+    const skipped: string[] = []
+    const clashes: Clash[] = []
     let read = 0
-    let soft: string | null = null
 
-    for (const entry of this.#wanted(entries, wide)) {
+    const todo = this.#wanted(entries, wide).filter(
+      (entry) => parsePath(entry.path) !== null && blobs[entry.path] !== entry.sha,
+    )
+    const total = todo.length
+    if (watch) this.#patch({ backfilling: { done: 0, total } })
+
+    let done = 0
+    for (const entry of todo) {
       const parsed = parsePath(entry.path)
       if (parsed === null) continue
-      if (blobs[entry.path] === entry.sha) continue
       const bytes = await this.#opts.repo.readBlob(entry.sha)
-      let rows: Base[]
+      let rows: Base[] | null = null
       try {
         const opened = await openJson<unknown>(this.#opts.dataKey, bytes)
         if (!Array.isArray(opened)) throw new Error('내용이 목록이 아닙니다')
         rows = opened as Base[]
       } catch {
-        soft = `${entry.path} 파일을 열지 못해 건너뛰었습니다.`
-        continue
+        skipped.push(entry.path)
       }
-      const bucket = bag[parsed.table]
-      if (bucket) bucket.push(...rows)
-      else bag[parsed.table] = [...rows]
-      blobs[entry.path] = entry.sha
-      read++
+      if (rows !== null) {
+        const bucket = bag[parsed.table]
+        if (bucket) bucket.push(...rows)
+        else bag[parsed.table] = [...rows]
+        blobs[entry.path] = entry.sha
+        read++
+      }
+      done++
+      if (watch) this.#patch({ backfilling: { done, total } })
     }
 
     if (read > 0) {
       const local = await this.#opts.store.loadAll()
-      const merged = mergeSnapshots(local, bag as Partial<Snapshot>)
+      const merged = mergeSnapshots(local, bag as Partial<Snapshot>, (clash) => clashes.push(clash))
       const wrote = await this.#absorb(local, merged)
       this.#opts.onSnapshot?.(wrote ? await this.#opts.store.loadAll() : merged)
     }
@@ -307,7 +405,7 @@ export class SyncEngine {
       backfilled: cache.backfilled || full,
       reminders: cache.reminders,
     })
-    return soft
+    return { read, wrote: 0, skipped, clashes }
   }
 
   async #absorb(local: Snapshot, merged: Snapshot): Promise<boolean> {
@@ -322,7 +420,7 @@ export class SyncEngine {
     return wrote
   }
 
-  async #push(): Promise<string | null> {
+  async #push(): Promise<Report> {
     const claimed = this.#state.pendingCount
     const snapshot = await this.#opts.store.loadAll()
     const bag: RowBag = {}
@@ -356,7 +454,7 @@ export class SyncEngine {
 
     if (put.length === 0) {
       this.#patch({ pendingCount: Math.max(0, this.#state.pendingCount - claimed) })
-      return null
+      return { read: 0, wrote: 0, skipped: [], clashes: [] }
     }
 
     const plan: CommitPlan = { message: COMMIT_MESSAGE, put }
@@ -370,6 +468,6 @@ export class SyncEngine {
       reminders: sendReminders ? reminders : cache.reminders,
     })
     this.#patch({ pendingCount: Math.max(0, this.#state.pendingCount - claimed) })
-    return null
+    return { read: 0, wrote: put.length, skipped: [], clashes: [] }
   }
 }
