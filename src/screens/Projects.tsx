@@ -43,6 +43,8 @@ const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
 
 const PROJECT_STATUSES: ProjectStatus[] = ['active', 'held', 'done']
 
+const TASK_MENU_STATUSES: TodoStatus[] = ['doing', 'todo', 'held']
+
 function pad(n: number): string {
   return n < 10 ? `0${n}` : String(n)
 }
@@ -842,9 +844,11 @@ function TaskRow({
   const todoApi = useTodos()
   const undo = useUndo()
   const [extra, setExtra] = useState(false)
+  const [menu, setMenu] = useState(false)
   const due = task.dueAt ? logicalDay(task.dueAt, boundaryHour) : null
   const remaining = due ? daysBetween(due, today) : null
-  const overdue = remaining !== null && remaining < 0 && task.status !== 'done'
+  const done = task.status === 'done'
+  const overdue = remaining !== null && remaining < 0 && !done
 
   const remove = () => {
     void todoApi.removeTodo(task)
@@ -856,39 +860,66 @@ function TaskRow({
 
   return (
     <li className={overdue ? 'project-task todo todo--overdue' : 'project-task todo'}>
-      <select
-        className="project-select"
-        value={task.status}
-        aria-label={`${task.title} 상태`}
-        onChange={(e) => void api.setTaskStatus(task, e.target.value as TodoStatus)}
-      >
-        {(['doing', 'todo', 'held', 'done'] as TodoStatus[]).map((status) => (
-          <option key={status} value={status}>
-            {TASK_STATUS_LABEL[status]}
-          </option>
-        ))}
-      </select>
+      <button
+        type="button"
+        className={done ? 'check check--on' : 'check'}
+        onClick={() => void api.setTaskStatus(task, done ? 'todo' : 'done')}
+        aria-pressed={done}
+        aria-label={`${task.title} 완료 토글`}
+      />
       <div className="todo__text">
         <span className="todo-head">
-          <span className={task.status === 'done' ? 'todo-title todo-title--done' : 'todo-title'}>
+          <span className={done ? 'todo-title todo-title--done' : 'todo-title'}>
             {task.title}
           </span>
           <PlaceNoteButton todo={task} open={extra} onToggle={() => setExtra((v) => !v)} />
         </span>
-        {task.assignee && (
+        {(task.status === 'held' || task.assignee) && (
           <span className="todo-meta">
-            <span className="project-assignee">{task.assignee}</span>
+            {task.status === 'held' && (
+              <span className="badge task-status">{TASK_STATUS_LABEL.held}</span>
+            )}
+            {task.assignee && <span className="project-assignee">{task.assignee}</span>}
           </span>
         )}
         <DueEditor todo={task} remaining={remaining} overdue={overdue} />
         <PlaceNoteLine todo={task} open={extra} onClose={() => setExtra(false)} />
+        {menu && (
+          <span className="todo-meta task-menu">
+            {TASK_MENU_STATUSES.map((status) => (
+              <button
+                key={status}
+                type="button"
+                aria-pressed={task.status === status}
+                onClick={() => {
+                  void api.setTaskStatus(task, status)
+                  setMenu(false)
+                }}
+              >
+                {TASK_STATUS_LABEL[status]}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                void api.moveTask(task, undefined)
+                setMenu(false)
+              }}
+            >
+              개인으로
+            </button>
+          </span>
+        )}
       </div>
       <button
         type="button"
-        className="link-btn"
-        onClick={() => void api.moveTask(task, undefined)}
+        className="task-more"
+        aria-expanded={menu}
+        aria-label={`${task.title} 작업 메뉴`}
+        title="상태와 옮기기"
+        onClick={() => setMenu((v) => !v)}
       >
-        개인으로
+        ⋮
       </button>
       <button
         type="button"

@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { daysBetween, logicalDay } from '../lib/day'
 import { ddayLabel, formatDueLabel, toDueAt } from '../lib/due'
-import { groupTodosByDue } from '../lib/groupTodos'
+import { groupTodosByDue, type TodoGroup, type TodoGroupItem } from '../lib/groupTodos'
+import { navigate, openProject, replaceRoute, useAddress } from '../lib/router'
 import { dueDayOf, formatRemaining } from '../lib/select'
 import {
   checklistProgress,
@@ -34,17 +35,30 @@ export function Todos() {
   )
 }
 
+const AHEAD_TITLE = '앞으로'
+
+function isSoon(group: TodoGroup): boolean {
+  return group.kind === 'overdue' || group.kind === 'today' || group.kind === 'tomorrow'
+}
+
 function TodosScreen() {
   const app = useApp()
+  const address = useAddress()
   const [showDone, setShowDone] = useState(false)
+  const [showParked, setShowParked] = useState(false)
   const [composing, setComposing] = useState(false)
-  const [openId, setOpenId] = useState<string | null>(null)
   const boundaryHour = app.snapshot.settings.dayBoundaryHour
 
   const groups = useMemo(
     () => groupTodosByDue(app.snapshot, app.today, boundaryHour),
     [app.snapshot, app.today, boundaryHour],
   )
+  const soon = useMemo(() => groups.filter(isSoon), [groups])
+  const ahead = useMemo(
+    () => groups.filter((g) => g.kind === 'day').flatMap((g) => g.items),
+    [groups],
+  )
+  const undated = useMemo(() => groups.filter((g) => g.kind === 'undated'), [groups])
 
   const done = useMemo(
     () =>
@@ -55,11 +69,42 @@ function TodosScreen() {
   )
 
   const projects = useMemo(() => sortedProjects(app.snapshot), [app.snapshot])
-  const opened = openId === null ? undefined : projects.find((p) => p.id === openId)
+  const running = useMemo(() => projects.filter((p) => p.status === 'active'), [projects])
+  const parked = useMemo(() => projects.filter((p) => p.status !== 'active'), [projects])
+
+  const openId = address.projectId
+  const opened = openId === undefined ? undefined : projects.find((p) => p.id === openId)
+  const missing = app.ready && openId !== undefined && opened === undefined
+
+  useEffect(() => {
+    if (missing) replaceRoute('/todos')
+  }, [missing])
 
   if (opened) {
-    return <ProjectDetail project={opened} onBack={() => setOpenId(null)} />
+    return <ProjectDetail project={opened} onBack={() => navigate('/todos')} />
   }
+
+  const todoCard = (key: string, title: string, items: TodoGroupItem[]) => (
+    <section key={key} className="card todo-group">
+      <div className="card__head">
+        <h2>{title}</h2>
+        <span className="project-count">{items.length}</span>
+      </div>
+      <ul className="todo-list">
+        {items.map((item) => (
+          <TodoRow
+            key={item.todo.id}
+            todo={item.todo}
+            project={item.project}
+            boundaryHour={boundaryHour}
+            today={app.today}
+          />
+        ))}
+      </ul>
+    </section>
+  )
+
+  const groupCard = (group: TodoGroup) => todoCard(group.key, group.title, group.items)
 
   return (
     <div className="screen">
@@ -69,26 +114,11 @@ function TodosScreen() {
       {groups.length === 0 ? (
         <p className="empty">할 일이 없습니다.</p>
       ) : (
-        groups.map((group) => (
-          <section key={group.key} className="card todo-group">
-            <div className="card__head">
-              <h2>{group.title}</h2>
-              <span className="project-count">{group.items.length}</span>
-            </div>
-            <ul className="todo-list">
-              {group.items.map((item) => (
-                <TodoRow
-                  key={item.todo.id}
-                  todo={item.todo}
-                  project={item.project}
-                  boundaryHour={boundaryHour}
-                  today={app.today}
-                />
-              ))}
-            </ul>
-          </section>
-        ))
+        soon.map(groupCard)
       )}
+
+      {ahead.length > 0 && todoCard('ahead', AHEAD_TITLE, ahead)}
+      {undated.map(groupCard)}
 
       {done.length > 0 && (
         <section className="card">
@@ -115,7 +145,7 @@ function TodosScreen() {
         </section>
       )}
 
-      <TimelineFold onOpen={(project) => setOpenId(project.id)} />
+      <TimelineFold onOpen={(project) => openProject(project.id)} />
 
       <section className="card project-section">
         <div className="card__head">
@@ -138,20 +168,46 @@ function TodosScreen() {
           />
         )}
 
-        {projects.length === 0 ? (
-          <p className="empty">프로젝트가 없습니다.</p>
-        ) : (
+        {projects.length === 0 && <p className="empty">프로젝트가 없습니다.</p>}
+
+        {running.length > 0 && (
           <ul className="project-list">
-            {projects.map((project) => (
+            {running.map((project) => (
               <ProjectCard
                 key={project.id}
                 project={project}
                 boundaryHour={boundaryHour}
                 today={app.today}
-                onOpen={() => setOpenId(project.id)}
+                onOpen={() => openProject(project.id)}
               />
             ))}
           </ul>
+        )}
+
+        {parked.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => setShowParked((v) => !v)}
+              aria-expanded={showParked}
+            >
+              보류·완료 {parked.length}개 {showParked ? '접기' : '펼치기'}
+            </button>
+            {showParked && (
+              <ul className="project-list">
+                {parked.map((project) => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    boundaryHour={boundaryHour}
+                    today={app.today}
+                    onOpen={() => openProject(project.id)}
+                  />
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </section>
     </div>

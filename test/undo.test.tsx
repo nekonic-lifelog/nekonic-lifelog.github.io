@@ -80,7 +80,10 @@ function byId(snapshot: Snapshot, id: string): Todo {
 
 const undoButton = () => screen.queryByRole('button', { name: '되돌리기' })
 
-beforeEach(resetIds)
+beforeEach(() => {
+  resetIds()
+  window.location.hash = ''
+})
 afterEach(cleanup)
 
 describe('할 일 삭제 되돌리기', () => {
