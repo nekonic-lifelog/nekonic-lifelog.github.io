@@ -42,13 +42,13 @@ describe('앱바 동기화 표시', () => {
   })
 
   it('인증 실패가 못 올린 변경보다 먼저다', () => {
-    render(dot({ authFailed: true, pendingCount: 9, backfilling: true }))
+    render(dot({ authFailed: true, pendingCount: 9, backfilling: { done: 2, total: 7 } }))
 
     expect(screen.getByRole('status').getAttribute('aria-label')).toContain('막힘')
   })
 
   it('지난 기록을 받는 중이면 그렇게 알린다', () => {
-    render(dot({ backfilling: true }))
+    render(dot({ backfilling: { done: 2, total: 7 } }))
 
     expect(screen.getByRole('status').getAttribute('aria-label')).toBe('지난 기록을 받는 중')
   })
@@ -66,7 +66,7 @@ describe('앱바 동기화 표시', () => {
       {},
       { pendingCount: 1 },
       { authFailed: true },
-      { backfilling: true },
+      { backfilling: { done: 2, total: 7 } },
       { lastError: '무언가' },
     ]
 

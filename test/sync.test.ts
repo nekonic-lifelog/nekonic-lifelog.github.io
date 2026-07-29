@@ -21,7 +21,12 @@ import {
   type Credentials,
   type SyncCache,
 } from '../src/sync/credentials'
-import { SyncEngine, type SyncEngineOptions, type SyncState } from '../src/sync/engine'
+import {
+  HISTORY_LIMIT,
+  SyncEngine,
+  type SyncEngineOptions,
+  type SyncState,
+} from '../src/sync/engine'
 import { mergeRows } from '../src/sync/merge'
 import {
   makeBook,
@@ -640,13 +645,13 @@ describe('트리 읽기', () => {
 
     expect(pc.store.rows('records').map((r) => r.id)).toEqual([fresh.id])
     expect(pc.store.rows('definitions')).toEqual([def])
-    expect(pc.engine.state.backfilling).toBe(false)
+    expect(pc.engine.state.backfilling).toBeNull()
 
     pc.states.length = 0
     await pc.engine.backfill()
 
-    expect(pc.states.some((s) => s.backfilling)).toBe(true)
-    expect(pc.engine.state.backfilling).toBe(false)
+    expect(pc.states.some((s) => s.backfilling !== null)).toBe(true)
+    expect(pc.engine.state.backfilling).toBeNull()
     expect(pc.store.rows('records').map((r) => r.id).sort()).toEqual([fresh.id, old.id].sort())
   })
 
@@ -1004,7 +1009,10 @@ describe('상태 알리기', () => {
     expect(pc.store.rows('todos')).toEqual([])
     expect(pc.engine.state.authFailed).toBe(false)
     expect(pc.engine.state.lastError).toContain('todos/ghost.enc')
-    expect(pc.engine.state.lastSuccessAt).not.toBeNull()
+    expect(pc.engine.state.skipped).toEqual(['/todos/ghost.enc'])
+    expect(pc.engine.state.lastAttemptAt).not.toBeNull()
+    expect(pc.engine.state.lastSuccessAt).toBeNull()
+    expect(pc.engine.state.history[0]?.outcome).toBe('partial')
   })
 
   it('한 번에 받고 올리는 길에서도 모든 테이블이 오간다', async () => {
@@ -1025,6 +1033,226 @@ describe('상태 알리기', () => {
       expect(pc.store.rows(table)).toEqual(phone.store.rows(table))
     }
     expect(fake.commitCount()).toBe(1)
+  })
+})
+
+describe('동기화 이력', () => {
+  it('받기와 올리기가 방향과 파일 수까지 남는다', async () => {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone')
+    const def = makeDef({ deviceId: 'phone' })
+    await phone.store.put('definitions', [def])
+    await phone.engine.push()
+
+    const pc = device(fake, 'pc')
+    await pc.engine.pull()
+
+    const up = phone.engine.state.history[0]
+    expect(up?.direction).toBe('push')
+    expect(up?.outcome).toBe('ok')
+    expect(up?.wrote).toBeGreaterThan(0)
+    expect(up?.read).toBe(0)
+    expect(up?.at).toBe(new Date(clock.now()).toISOString())
+
+    const down = pc.engine.state.history[0]
+    expect(down?.direction).toBe('pull')
+    expect(down?.outcome).toBe('ok')
+    expect(down?.read).toBe(1)
+    expect(down?.wrote).toBe(0)
+    expect(down?.error).toBeNull()
+  })
+
+  it('이력은 최근 스무 건만 남고 오래된 것은 밀려난다', async () => {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone')
+    await phone.store.put('books', [makeBook({ deviceId: 'phone', id: 'bk-1' })])
+
+    for (let i = 0; i < HISTORY_LIMIT + 5; i++) await phone.engine.pull()
+
+    expect(phone.engine.state.history).toHaveLength(HISTORY_LIMIT)
+    expect(phone.engine.state.history.every((e) => e.direction === 'pull')).toBe(true)
+
+    await phone.engine.push()
+    expect(phone.engine.state.history).toHaveLength(HISTORY_LIMIT)
+    expect(phone.engine.state.history[0]?.direction).toBe('push')
+    expect(phone.engine.state.history.filter((e) => e.direction === 'push')).toHaveLength(1)
+  })
+
+  it('성공과 실패가 이력에서 구분된다', async () => {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone', {}, 2)
+    await phone.store.put('books', [makeBook({ deviceId: 'phone' })])
+
+    fake.offline = true
+    await phone.engine.push()
+    fake.offline = false
+    await phone.engine.push()
+
+    const outcomes = phone.engine.state.history.map((e) => e.outcome)
+    expect(outcomes).toEqual(['ok', 'failed'])
+    expect(phone.engine.state.history[1]?.error).not.toBeNull()
+    expect(phone.engine.state.history[0]?.error).toBeNull()
+  })
+
+  it('부분 실패는 완전 성공과 구분되고 마지막 성공 시각을 움직이지 않는다', async () => {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone')
+    const def = makeDef({ deviceId: 'phone' })
+    await phone.store.put('definitions', [def])
+    await phone.engine.push()
+
+    const pc = device(fake, 'pc')
+    await pc.engine.pull()
+    const clean = pc.engine.state.lastSuccessAt
+    expect(clean).not.toBeNull()
+    expect(pc.engine.state.history[0]?.outcome).toBe('ok')
+
+    const stranger = await importDataKey(randomBytes(32))
+    fake.inject('books/ghost.enc', await sealJson(stranger, [makeBook({ id: 'bk-x' })]))
+    await pc.engine.pull()
+
+    expect(pc.engine.state.history[0]?.outcome).toBe('partial')
+    expect(pc.engine.state.history[0]?.skipped).toBe(1)
+    expect(pc.engine.state.lastSuccessAt).toBe(clean)
+    expect(pc.engine.state.lastAttemptAt).not.toBe(null)
+  })
+
+  it('여러 파일이 열리지 않으면 개수가 함께 보인다', async () => {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone')
+    const def = makeDef({ deviceId: 'phone' })
+    await phone.store.put('definitions', [def])
+    await phone.engine.push()
+
+    const stranger = await importDataKey(randomBytes(32))
+    for (const name of ['aa', 'bb', 'cc', 'dd']) {
+      fake.inject(`books/${name}.enc`, await sealJson(stranger, [makeBook({ id: `bk-${name}` })]))
+    }
+
+    const pc = device(fake, 'pc')
+    await pc.engine.pull()
+
+    expect(pc.engine.state.skipped).toHaveLength(4)
+    expect(pc.engine.state.history[0]?.skipped).toBe(4)
+    expect(pc.engine.state.lastError).toContain('4')
+    expect(pc.engine.state.lastError).toContain('books/aa.enc')
+    expect(pc.engine.state.lastError).toContain('외 1개')
+    expect(pc.store.rows('definitions')).toEqual([def])
+  })
+})
+
+describe('첫 동기화 진행도', () => {
+  it('백필 진행도가 0에서 시작해 총 개수까지 올라간다', async () => {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone')
+    const def = makeDef({ deviceId: 'phone' })
+    await phone.store.put('definitions', [def])
+    await phone.store.put('records', [
+      makeRecord(def.id, '2025-04-10T09:00:00+09:00', 1, { deviceId: 'phone' }),
+      makeRecord(def.id, '2025-05-10T09:00:00+09:00', 2, { deviceId: 'phone' }),
+      makeRecord(def.id, '2025-06-10T09:00:00+09:00', 3, { deviceId: 'phone' }),
+    ])
+    await phone.engine.push()
+
+    const pc = device(fake, 'pc')
+    await pc.engine.pull()
+
+    pc.states.length = 0
+    await pc.engine.backfill()
+
+    const seen = pc.states
+      .map((s) => s.backfilling)
+      .filter((b): b is { done: number; total: number } => b !== null)
+    const total = seen[seen.length - 1]?.total ?? 0
+    expect(total).toBe(3)
+    expect(seen[0]).toEqual({ done: 0, total: 0 })
+    expect(seen).toContainEqual({ done: 0, total })
+    expect(seen).toContainEqual({ done: total, total })
+
+    const steps = seen.filter((b) => b.total === total).map((b) => b.done)
+    expect(steps).toEqual([...steps].sort((a, b) => a - b))
+    expect(pc.engine.state.backfilling).toBeNull()
+    expect(pc.store.rows('records')).toHaveLength(3)
+  })
+})
+
+describe('겹친 편집', () => {
+  const LATER = '2026-03-12T21:00:00+09:00'
+  const LATEST = '2026-03-12T22:00:00+09:00'
+
+  async function crossed(): Promise<Device> {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone')
+    const pc = device(fake, 'pc')
+    const book = makeBook({ deviceId: 'phone', id: 'bk-1', title: '처음 제목' })
+    await phone.store.put('books', [book])
+    await phone.engine.push()
+    await pc.engine.pull()
+
+    await phone.store.put('books', [
+      { ...book, deviceId: 'phone', updatedAt: LATER, title: '폰에서 고친 제목' },
+    ])
+    await pc.store.put('books', [
+      { ...book, deviceId: 'pc', updatedAt: LATEST, title: 'PC에서 고친 제목' },
+    ])
+    await phone.engine.push()
+    await pc.engine.push()
+    await phone.engine.pull()
+    return phone
+  }
+
+  it('두 기기가 같은 항목을 고치면 밀린 쪽이 남는다', async () => {
+    const phone = await crossed()
+
+    expect(phone.engine.state.clashes).toHaveLength(1)
+    expect(phone.engine.state.clashes[0]).toEqual({
+      table: 'books',
+      id: 'bk-1',
+      winnerDeviceId: 'pc',
+      loserDeviceId: 'phone',
+      loserUpdatedAt: LATER,
+    })
+    expect(phone.store.rows('books')[0]?.deviceId).toBe('pc')
+  })
+
+  it('겹친 편집 자국에 본문이 들어 있지 않다', async () => {
+    const phone = await crossed()
+    const dump = JSON.stringify(phone.engine.state.clashes)
+
+    expect(dump).not.toContain('폰에서 고친 제목')
+    expect(dump).not.toContain('PC에서 고친 제목')
+    expect(dump).not.toContain('처음 제목')
+    expect(dump).not.toContain('title')
+    for (const clash of phone.engine.state.clashes) {
+      expect(Object.keys(clash).sort()).toEqual([
+        'id',
+        'loserDeviceId',
+        'loserUpdatedAt',
+        'table',
+        'winnerDeviceId',
+      ])
+    }
+  })
+
+  it('겹치지 않은 편집은 기록되지 않는다', async () => {
+    const fake = fakeGithub()
+    const phone = device(fake, 'phone')
+    const pc = device(fake, 'pc')
+    const mine = makeBook({ deviceId: 'phone', id: 'bk-1', title: '내 것' })
+    const yours = makeBook({ deviceId: 'pc', id: 'bk-2', title: '네 것' })
+    await phone.store.put('books', [mine])
+    await pc.store.put('books', [yours])
+    await phone.engine.push()
+    await pc.engine.push()
+
+    await phone.store.put('books', [{ ...mine, updatedAt: LATER, title: '나만 고침' }])
+    await phone.engine.push()
+    await phone.engine.pull()
+    await pc.engine.pull()
+
+    expect(phone.engine.state.clashes).toEqual([])
+    expect(pc.engine.state.clashes).toEqual([])
+    expect(pc.store.rows('books')).toHaveLength(2)
   })
 })
 

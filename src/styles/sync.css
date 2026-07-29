@@ -31,6 +31,79 @@
   font-variant-numeric: tabular-nums;
 }
 
+.sync__fold {
+  min-width: 0;
+}
+
+.sync__fold > summary {
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 0;
+  min-height: 28px;
+  line-height: 24px;
+}
+
+.sync__log {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.sync__log-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+
+.sync__log-when {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.sync__log-counts {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sync__log-error {
+  flex: 1 1 100%;
+  font-size: 12px;
+  color: var(--danger);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sync__tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.sync__tag--partial,
+.sync__tag--failed {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
 .sync__alarm {
   gap: 6px;
   padding: 12px;

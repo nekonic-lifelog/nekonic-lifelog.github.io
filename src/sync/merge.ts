@@ -1,5 +1,16 @@
-import type { Snapshot } from '../data/store'
+import type { Snapshot, TableName } from '../data/store'
 import type { Base } from '../lib/types'
+
+export interface RowClash {
+  id: string
+  winnerDeviceId: string
+  loserDeviceId: string
+  loserUpdatedAt: string
+}
+
+export interface Clash extends RowClash {
+  table: TableName
+}
 
 function instantOf(row: Base): number {
   const ms = Date.parse(row.updatedAt)
@@ -32,12 +43,37 @@ function byId(a: Base, b: Base): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 }
 
-export function mergeRows<T extends Base>(groups: T[][]): T[] {
+export function mergeRows<T extends Base>(
+  groups: T[][],
+  onClash?: (clash: RowClash) => void,
+): T[] {
   const best = new Map<string, T>()
+  const beaten = new Map<string, T>()
   for (const group of groups) {
     for (const row of group) {
       const prev = best.get(row.id)
-      best.set(row.id, prev === undefined ? row : winnerOf(row, prev))
+      if (prev === undefined) {
+        best.set(row.id, row)
+        continue
+      }
+      const winner = winnerOf(row, prev)
+      best.set(row.id, winner)
+      if (onClash === undefined) continue
+      const loser = winner === row ? prev : row
+      const worst = beaten.get(row.id)
+      beaten.set(row.id, worst === undefined ? loser : winnerOf(loser, worst))
+    }
+  }
+  if (onClash !== undefined) {
+    for (const [id, loser] of beaten) {
+      const winner = best.get(id)
+      if (winner === undefined || winner.deviceId === loser.deviceId) continue
+      onClash({
+        id,
+        winnerDeviceId: winner.deviceId,
+        loserDeviceId: loser.deviceId,
+        loserUpdatedAt: loser.updatedAt,
+      })
     }
   }
   return [...best.values()].sort(byId)
@@ -51,14 +87,20 @@ export function liveRows<T extends Base>(rows: T[]): T[] {
   return rows.filter((row) => !row.deleted)
 }
 
-export function mergeSnapshots(local: Snapshot, remote: Partial<Snapshot>): Snapshot {
+export function mergeSnapshots(
+  local: Snapshot,
+  remote: Partial<Snapshot>,
+  onClash?: (clash: Clash) => void,
+): Snapshot {
+  const watch = (table: TableName): ((clash: RowClash) => void) | undefined =>
+    onClash === undefined ? undefined : (clash) => onClash({ ...clash, table })
   return {
-    definitions: mergeRows([local.definitions, remote.definitions ?? []]),
-    records: mergeRows([local.records, remote.records ?? []]),
-    todos: mergeRows([local.todos, remote.todos ?? []]),
-    projects: mergeRows([local.projects, remote.projects ?? []]),
-    books: mergeRows([local.books, remote.books ?? []]),
-    journal: mergeRows([local.journal, remote.journal ?? []]),
+    definitions: mergeRows([local.definitions, remote.definitions ?? []], watch('definitions')),
+    records: mergeRows([local.records, remote.records ?? []], watch('records')),
+    todos: mergeRows([local.todos, remote.todos ?? []], watch('todos')),
+    projects: mergeRows([local.projects, remote.projects ?? []], watch('projects')),
+    books: mergeRows([local.books, remote.books ?? []], watch('books')),
+    journal: mergeRows([local.journal, remote.journal ?? []], watch('journal')),
     settings: local.settings,
   }
 }

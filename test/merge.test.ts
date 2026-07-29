@@ -2,7 +2,14 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import type { Snapshot, TableName } from '../src/data/store'
 import { DEFAULT_SETTINGS, type Base, type Settings } from '../src/lib/types'
-import { liveRows, mergeRows, mergeSnapshots, ownRows } from '../src/sync/merge'
+import {
+  liveRows,
+  mergeRows,
+  mergeSnapshots,
+  ownRows,
+  type Clash,
+  type RowClash,
+} from '../src/sync/merge'
 
 interface Row extends Base {
   payload: number
@@ -194,6 +201,80 @@ describe('스냅샷 병합', () => {
       ...DEFAULT_SETTINGS,
       dayBoundaryHour: 4,
     })
+  })
+})
+
+describe('덮어쓴 판정 자국', () => {
+  function caught(groups: Row[][]): RowClash[] {
+    const found: RowClash[] = []
+    mergeRows(groups, (clash) => found.push(clash))
+    return found
+  }
+
+  it('두 기기가 같은 행을 고치면 진 쪽이 남는다', () => {
+    const mine = makeRow({ id: 'x', deviceId: 'phone', updatedAt: at(1), payload: 1 })
+    const yours = makeRow({ id: 'x', deviceId: 'pc', updatedAt: at(2), payload: 2 })
+    expect(caught([[mine], [yours]])).toEqual([
+      { id: 'x', winnerDeviceId: 'pc', loserDeviceId: 'phone', loserUpdatedAt: at(1) },
+    ])
+    expect(caught([[yours], [mine]])).toEqual([
+      { id: 'x', winnerDeviceId: 'pc', loserDeviceId: 'phone', loserUpdatedAt: at(1) },
+    ])
+  })
+
+  it('자국에 본문이 들어 있지 않다', () => {
+    const mine = makeRow({ id: 'x', deviceId: 'phone', updatedAt: at(1), payload: 11 })
+    const yours = makeRow({ id: 'x', deviceId: 'pc', updatedAt: at(2), payload: 22 })
+    const found = caught([[mine], [yours]])
+    expect(JSON.stringify(found)).not.toContain('payload')
+    expect(JSON.stringify(found)).not.toContain('11')
+    expect(Object.keys(found[0] ?? {}).sort()).toEqual([
+      'id',
+      'loserDeviceId',
+      'loserUpdatedAt',
+      'winnerDeviceId',
+    ])
+  })
+
+  it('한 기기가 제 행을 고친 것은 겹침이 아니다', () => {
+    const older = makeRow({ id: 'x', deviceId: 'phone', updatedAt: at(1), payload: 1 })
+    const newer = makeRow({ id: 'x', deviceId: 'phone', updatedAt: at(3), payload: 2 })
+    expect(caught([[older], [newer]])).toEqual([])
+    expect(caught([[newer], [newer]])).toEqual([])
+    expect(caught([[older], [makeRow({ id: 'y', deviceId: 'pc' })]])).toEqual([])
+  })
+
+  it('같은 id가 여러 번 겹쳐도 자국은 한 줄이다', () => {
+    const old = makeRow({ id: 'x', deviceId: 'phone', updatedAt: at(1) })
+    const mid = makeRow({ id: 'x', deviceId: 'phone', updatedAt: at(3) })
+    const win = makeRow({ id: 'x', deviceId: 'pc', updatedAt: at(5) })
+    expect(caught([[old], [mid], [win], [mid], [old]])).toEqual([
+      { id: 'x', winnerDeviceId: 'pc', loserDeviceId: 'phone', loserUpdatedAt: at(3) },
+    ])
+  })
+
+  it('테이블 이름은 스냅샷 병합이 붙인다', () => {
+    const local = snap({
+      books: [makeRow({ id: 'b1', deviceId: 'phone', updatedAt: at(1) })],
+      todos: [makeRow({ id: 't1', deviceId: 'phone', updatedAt: at(1) })],
+    })
+    const remote = snap({
+      books: [makeRow({ id: 'b1', deviceId: 'pc', updatedAt: at(4) })],
+    })
+    const found: Clash[] = []
+    mergeSnapshots(local, remote, (clash) => found.push(clash))
+    expect(found).toEqual([
+      { table: 'books', id: 'b1', winnerDeviceId: 'pc', loserDeviceId: 'phone', loserUpdatedAt: at(1) },
+    ])
+  })
+
+  it('자국을 받지 않아도 병합 결과는 같다', () => {
+    const groups = [
+      [makeRow({ id: 'x', deviceId: 'phone', updatedAt: at(1) })],
+      [makeRow({ id: 'x', deviceId: 'pc', updatedAt: at(2) })],
+      [makeRow({ id: 'y', deviceId: 'pc', updatedAt: at(2) })],
+    ]
+    expect(mergeRows(groups, () => undefined)).toEqual(mergeRows(groups))
   })
 })
 
@@ -391,6 +472,23 @@ describe('속성 — 병합의 대수적 성질', () => {
         const inputIds = [...new Set(groups.flat().map((row) => row.id))].sort()
         expect(ids(merged)).toEqual(inputIds)
         expect(merged).toHaveLength(inputIds.length)
+      }),
+      { numRuns: 400 },
+    )
+  })
+
+  it('자국을 모아도 병합 결과가 달라지지 않는다', () => {
+    fc.assert(
+      fc.property(arbGroups, (groups) => {
+        const found: RowClash[] = []
+        expect(mergeRows(groups, (clash) => found.push(clash))).toEqual(mergeRows(groups))
+        const merged = mergeRows(groups)
+        for (const clash of found) {
+          const winner = merged.find((row) => row.id === clash.id)
+          expect(winner?.deviceId).toBe(clash.winnerDeviceId)
+          expect(clash.loserDeviceId).not.toBe(clash.winnerDeviceId)
+        }
+        expect(new Set(found.map((c) => c.id)).size).toBe(found.length)
       }),
       { numRuns: 400 },
     )
