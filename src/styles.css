@@ -551,6 +551,55 @@ input[type='text'] {
   color: var(--muted);
 }
 
+.def-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.opt input {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.opt > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.opt__name {
+  display: block;
+  font-size: 14px;
+}
+
+.opt__why {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.scale-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 110px;
+  min-width: 0;
+}
+
+.scale-field input {
+  width: 100%;
+  min-width: 0;
+}
+
 .weekdays {
   display: flex;
   flex-wrap: wrap;

@@ -566,6 +566,31 @@ describe('정의 프리셋', () => {
     expect(presetSummary(byKey('water'))).toBe('하루 2000ml')
     expect(presetSummary(byKey('caffeine'))).toBe('mg 기록')
     expect(presetSummary(byKey('med-morning'))).toBe('체크')
+    expect(presetSummary(byKey('mood'))).toBe('1~9 기록')
+  })
+
+  it('컨디션은 하루에 한 번 남기는 척도형 기록 지표다', () => {
+    const mood = byKey('mood')
+    expect(mood.kind).toBe('quantity')
+    expect(mood.scored).toBe(false)
+    expect(mood.aggregate).toBe('last')
+    expect(mood.scale).toEqual({ min: 1, max: 9 })
+    expect(mood.target).toBeUndefined()
+  })
+
+  it('컨디션 프리셋으로 만든 정의는 판정하지 않고 마지막 값만 센다', () => {
+    const base = createBase({ deviceId: DEVICE, clock: mutableClock(NOW) })
+    const def = definitionFrom(presetDefinitionInput(byKey('mood')), base, 0)
+    const records = [
+      makeRecord(def.id, '2026-03-12T09:00:00+09:00', 3),
+      makeRecord(def.id, '2026-03-12T21:00:00+09:00', 7),
+    ]
+    const at = { boundaryHour: BOUNDARY, clock: mutableClock(NOW) }
+
+    expect(def.scale).toEqual({ min: 1, max: 9 })
+    expect(computeStreak(def, records, at)).toBe(0)
+    expect(dayStatus(def, records, '2026-03-12', at).scored).toBe(false)
+    expect(dayStatus(def, records, '2026-03-12', at).total).toBe(7)
   })
 
   it('약과 영양제와 운동은 체크형이다', () => {
@@ -589,8 +614,9 @@ describe('정의 프리셋', () => {
   })
 
   it('그룹 순서를 유지한 채 묶어준다', () => {
-    expect(presetGroups().map((g) => g.group)).toEqual(['약', '영양제', '음료', '운동'])
+    expect(presetGroups().map((g) => g.group)).toEqual(['약', '영양제', '음료', '운동', '몸 상태'])
     expect(presetGroups().find((g) => g.group === '음료')?.presets).toHaveLength(2)
+    expect(presetGroups().find((g) => g.group === '몸 상태')?.presets).toHaveLength(1)
   })
 
   it('정의 입력으로 옮기면 이름과 단위와 목표가 그대로 간다', () => {

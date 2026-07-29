@@ -36,6 +36,15 @@ export const DEFINITION_PRESETS: DefinitionPreset[] = [
   { key: 'water', label: '물', group: '음료', kind: 'quantity', unit: 'ml', target: 2000 },
   { key: 'caffeine', label: '카페인', group: '음료', kind: 'quantity', unit: 'mg', scored: false },
   { key: 'exercise', label: '운동', group: '운동', kind: 'check' },
+  {
+    key: 'mood',
+    label: '컨디션',
+    group: '몸 상태',
+    kind: 'quantity',
+    scored: false,
+    aggregate: 'last',
+    scale: { min: 1, max: 9 },
+  },
 ]
 
 export function presetGroups(presets: DefinitionPreset[] = DEFINITION_PRESETS): PresetGroup[] {
@@ -67,6 +76,7 @@ export function isPresetAdded(preset: DefinitionPreset, existingNames: string[])
 export function presetSummary(preset: DefinitionPreset): string {
   if (preset.kind === 'check') return '체크'
   const unit = preset.unit ?? ''
+  if (preset.scale !== undefined) return `${preset.scale.min}~${preset.scale.max} 기록`
   if (preset.scored === false) return `${unit} 기록`.trim()
   return preset.target !== undefined ? `하루 ${preset.target}${unit}` : `수량 ${unit}`.trim()
 }

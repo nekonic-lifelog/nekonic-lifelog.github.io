@@ -4,7 +4,7 @@ import { BackupError, parseBackup, serializeBackup } from '../lib/backup'
 import type { Clock } from '../lib/clock'
 import { weekdayLabel } from '../lib/day'
 import { managedDefinitions } from '../lib/select'
-import { effectiveTarget } from '../lib/streak'
+import { effectiveTarget, isScored } from '../lib/streak'
 import type { Definition, DefinitionKind } from '../lib/types'
 import { useApp } from '../state/app'
 import { useHabits, type NewDefinition } from '../state/habits'
@@ -181,6 +181,19 @@ function DefinitionComposer() {
   const [unit, setUnit] = useState('')
   const [target, setTarget] = useState('')
   const [days, setDays] = useState<number[]>([])
+  const [more, setMore] = useState(false)
+  const [recordOnly, setRecordOnly] = useState(false)
+  const [lastOnly, setLastOnly] = useState(false)
+  const [scaled, setScaled] = useState(false)
+  const [scaleMin, setScaleMin] = useState('1')
+  const [scaleMax, setScaleMax] = useState('9')
+
+  const quantity = kind === 'quantity'
+  const useScale = quantity && scaled
+  const min = Number(scaleMin)
+  const max = Number(scaleMax)
+  const scaleBroken =
+    useScale && (!Number.isInteger(min) || !Number.isInteger(max) || min < 1 || max <= min)
 
   const reset = () => {
     setName('')
@@ -188,17 +201,26 @@ function DefinitionComposer() {
     setUnit('')
     setTarget('')
     setDays([])
+    setMore(false)
+    setRecordOnly(false)
+    setLastOnly(false)
+    setScaled(false)
+    setScaleMin('1')
+    setScaleMax('9')
     setOpen(false)
   }
 
   const submit = () => {
-    if (!name.trim()) return
+    if (!name.trim() || scaleBroken) return
     const input: NewDefinition = {
       name,
       kind,
-      unit: kind === 'quantity' ? unit : undefined,
-      target: kind === 'quantity' && target ? Number(target) : undefined,
+      unit: quantity && !useScale ? unit : undefined,
+      target: quantity && !recordOnly && target ? Number(target) : undefined,
       targetDays: days.length > 0 && days.length < 7 ? [...days].sort() : undefined,
+      scored: recordOnly ? false : undefined,
+      aggregate: quantity && lastOnly ? 'last' : undefined,
+      scale: useScale ? { min, max } : undefined,
     }
     void habits.addDefinition(input)
     reset()
@@ -248,22 +270,118 @@ function DefinitionComposer() {
           수량
         </label>
       </div>
-      {kind === 'quantity' && (
+      {quantity && (
         <div className="composer__row">
-          <input
-            type="text"
-            value={unit}
-            placeholder="단위 (ml, 정, 회)"
-            onChange={(e) => setUnit(e.target.value)}
-            aria-label="단위"
-          />
-          <input
-            type="number"
-            value={target}
-            placeholder="하루 목표"
-            onChange={(e) => setTarget(e.target.value)}
-            aria-label="하루 목표"
-          />
+          {!useScale && (
+            <input
+              type="text"
+              value={unit}
+              placeholder="단위 (ml, 정, 회)"
+              onChange={(e) => setUnit(e.target.value)}
+              aria-label="단위"
+            />
+          )}
+          {!recordOnly && (
+            <input
+              type="number"
+              value={target}
+              placeholder="하루 목표"
+              onChange={(e) => setTarget(e.target.value)}
+              aria-label="하루 목표"
+            />
+          )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        className="link-btn"
+        aria-expanded={more}
+        onClick={() => setMore((v) => !v)}
+      >
+        자세히
+      </button>
+
+      {more && (
+        <div className="def-opts">
+          <label className="opt">
+            <input
+              type="checkbox"
+              checked={recordOnly}
+              onChange={(e) => setRecordOnly(e.target.checked)}
+              aria-label="기록만 남긴다"
+            />
+            <span>
+              <span className="opt__name">기록만 남긴다</span>
+              <span className="opt__why">
+                달성·스트릭·달성률에서 빠집니다. 카페인처럼 목표 없이 남기기만 할 때 씁니다.
+              </span>
+            </span>
+          </label>
+
+          {quantity && (
+            <label className="opt">
+              <input
+                type="checkbox"
+                checked={lastOnly}
+                onChange={(e) => setLastOnly(e.target.checked)}
+                aria-label="그날 마지막 값"
+              />
+              <span>
+                <span className="opt__name">그날 마지막 값</span>
+                <span className="opt__why">
+                  하루에 여러 번 적어도 더하지 않고 마지막 값만 씁니다. 몸무게처럼 그날의 값일 때
+                  씁니다.
+                </span>
+              </span>
+            </label>
+          )}
+
+          {quantity && (
+            <label className="opt">
+              <input
+                type="checkbox"
+                checked={scaled}
+                onChange={(e) => setScaled(e.target.checked)}
+                aria-label="척도로 입력"
+              />
+              <span>
+                <span className="opt__name">척도로 입력</span>
+                <span className="opt__why">
+                  숫자판 대신 칩을 눌러 넣습니다. 컨디션 점수처럼 매일 적을 때 씁니다.
+                </span>
+              </span>
+            </label>
+          )}
+
+          {useScale && (
+            <div className="composer__row">
+              <label className="scale-field">
+                <span className="opt__why">가장 낮은 값</span>
+                <input
+                  type="number"
+                  value={scaleMin}
+                  onChange={(e) => setScaleMin(e.target.value)}
+                  aria-label="척도 최소"
+                />
+              </label>
+              <label className="scale-field">
+                <span className="opt__why">가장 높은 값</span>
+                <input
+                  type="number"
+                  value={scaleMax}
+                  onChange={(e) => setScaleMax(e.target.value)}
+                  aria-label="척도 최대"
+                />
+              </label>
+            </div>
+          )}
+
+          {scaleBroken && (
+            <p className="msg msg--error">
+              척도는 1 이상에서 시작하고 최대가 최소보다 커야 합니다.
+            </p>
+          )}
         </div>
       )}
       <fieldset className="weekdays">
@@ -284,7 +402,7 @@ function DefinitionComposer() {
         ))}
       </fieldset>
       <div className="btn-row">
-        <button type="submit" disabled={!name.trim()}>
+        <button type="submit" disabled={!name.trim() || scaleBroken}>
           만들기
         </button>
         <button type="button" onClick={reset}>
@@ -302,6 +420,8 @@ function DefinitionRow({ def }: { def: Definition }) {
   const [next, setNext] = useState('')
   const boundaryHour = app.snapshot.settings.dayBoundaryHour
   const current = effectiveTarget(def, app.today, boundaryHour)
+  const scored = isScored(def)
+  const targeted = def.kind === 'quantity' && scored
 
   const saveTarget = () => {
     const parsed = Number(next)
@@ -315,13 +435,17 @@ function DefinitionRow({ def }: { def: Definition }) {
       <div className="def__head">
         <span className="def__name">{def.name}</span>
         <span className="badge">{def.kind === 'check' ? '체크' : '수량'}</span>
+        {!scored && <span className="badge">기록만</span>}
         {def.archived && <span className="badge">오늘에서 내림</span>}
       </div>
       <div className="def__meta">
-        {def.kind === 'quantity' && (
+        {targeted && (
           <span>
             목표 {current ?? '—'} {def.unit ?? ''}
           </span>
+        )}
+        {!scored && def.scale !== undefined && (
+          <span>{`척도 ${def.scale.min}~${def.scale.max}`}</span>
         )}
         <span>
           {def.targetDays
@@ -330,7 +454,7 @@ function DefinitionRow({ def }: { def: Definition }) {
         </span>
       </div>
 
-      {def.kind === 'quantity' &&
+      {targeted &&
         (editingTarget ? (
           <div className="btn-row">
             <input
@@ -356,7 +480,7 @@ function DefinitionRow({ def }: { def: Definition }) {
         ))}
 
       <div className="btn-row">
-        {def.kind === 'quantity' && !editingTarget && (
+        {targeted && !editingTarget && (
           <button type="button" onClick={() => setEditingTarget(true)}>
             목표 변경
           </button>
