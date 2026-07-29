@@ -253,6 +253,138 @@ describe('habitStats — 분모', () => {
   })
 })
 
+describe('habitStats — 만들기 전은 분모가 아니다', () => {
+  it('오늘 만든 습관의 월간 분모는 그 달 전체가 아니라 하루다', () => {
+    const def = makeDef({ createdAt: '2026-03-12T09:00:00+09:00' })
+    const stat = only(
+      habitStats(snap({ definitions: [def] }), rangeFor('month', TODAY), opts(NOW)),
+    )
+
+    expect(stat.targetDays).toBe(1)
+    expect(stat.achievedDays).toBe(0)
+  })
+
+  it('만든 날에 남긴 기록이면 100%다', () => {
+    const def = makeDef({ createdAt: '2026-03-12T09:00:00+09:00' })
+    const snapshot = snap({
+      definitions: [def],
+      records: dailyRecords(def.id, ['2026-03-12'], 1, '10:00:00'),
+    })
+    const stat = only(habitStats(snapshot, rangeFor('month', TODAY), opts(NOW)))
+
+    expect(stat.targetDays).toBe(1)
+    expect(stat.achievedDays).toBe(1)
+    expect(stat.percent).toBe(100)
+  })
+
+  it('새벽 2시에 만든 습관은 전날부터 센다', () => {
+    const def = makeDef({ createdAt: '2026-03-12T02:00:00+09:00' })
+    const stat = only(
+      habitStats(snap({ definitions: [def] }), rangeFor('week', TODAY), opts(NOW)),
+    )
+
+    expect(stat.targetDays).toBe(2)
+  })
+
+  it('만들기 전 날짜에 소급 입력한 기록이 있으면 그날부터 센다', () => {
+    const def = makeDef({ createdAt: '2026-03-10T12:00:00+09:00' })
+    const snapshot = snap({
+      definitions: [def],
+      records: dailyRecords(def.id, ['2026-03-08', '2026-03-09']),
+    })
+    const stat = only(habitStats(snapshot, rangeFor('month', TODAY), opts(NOW)))
+
+    expect(stat.targetDays).toBe(5)
+    expect(stat.achievedDays).toBe(2)
+  })
+
+  it('삭제된 소급 기록은 분모를 늘리지 않는다', () => {
+    const def = makeDef({ createdAt: '2026-03-10T12:00:00+09:00' })
+    const snapshot = snap({
+      definitions: [def],
+      records: dailyRecords(def.id, ['2026-03-08']).map((r) => ({ ...r, deleted: true })),
+    })
+    const stat = only(habitStats(snapshot, rangeFor('month', TODAY), opts(NOW)))
+
+    expect(stat.targetDays).toBe(3)
+    expect(stat.achievedDays).toBe(0)
+  })
+})
+
+describe('habitStats — 보관해도 지나간 집계는 그대로다', () => {
+  function february() {
+    const def = makeDef({ name: '아침 약', createdAt: '2026-02-01T09:00:00+09:00' })
+    return {
+      def,
+      records: dailyRecords(def.id, ['2026-02-03', '2026-02-04', '2026-02-05']),
+      range: rangeFor('month', '2026-02-10'),
+    }
+  }
+
+  it('지난달 달성률이 보관 뒤에도 같다', () => {
+    const { def, records, range } = february()
+    const before = only(habitStats(snap({ definitions: [def], records }), range, opts(NOW)))
+    const after = only(
+      habitStats(snap({ definitions: [{ ...def, archived: true }], records }), range, opts(NOW)),
+    )
+
+    expect(before.targetDays).toBe(28)
+    expect(before.achievedDays).toBe(3)
+    expect(after.targetDays).toBe(before.targetDays)
+    expect(after.achievedDays).toBe(before.achievedDays)
+    expect(after.percent).toBe(before.percent)
+  })
+
+  it('요약 합계도 보관 때문에 줄지 않는다', () => {
+    const { def, records, range } = february()
+    const before = summaryFor(habitStats(snap({ definitions: [def], records }), range, opts(NOW)))
+    const after = summaryFor(
+      habitStats(snap({ definitions: [{ ...def, archived: true }], records }), range, opts(NOW)),
+    )
+
+    expect(after).toEqual(before)
+    expect(after.totalTargetDays).toBe(28)
+    expect(after.totalAchievedDays).toBe(3)
+  })
+
+  it('보관한 습관은 definition.archived로 구분된다', () => {
+    const { def, records, range } = february()
+    const stat = only(
+      habitStats(snap({ definitions: [{ ...def, archived: true }], records }), range, opts(NOW)),
+    )
+
+    expect(stat.definition.archived).toBe(true)
+    expect(stat.definition.name).toBe('아침 약')
+  })
+
+  it('그 기간에 대상일이 없던 보관 습관은 목록에 없다', () => {
+    const def = makeDef({
+      name: '옛 습관',
+      archived: true,
+      createdAt: '2026-03-05T09:00:00+09:00',
+    })
+    const stats = habitStats(
+      snap({ definitions: [def] }),
+      rangeFor('month', '2026-02-10'),
+      opts(NOW),
+    )
+
+    expect(stats).toEqual([])
+  })
+
+  it('보관하지 않은 습관은 대상일이 0이어도 목록에 남는다', () => {
+    const def = makeDef({ targetDays: [0] })
+    const stats = habitStats(
+      snap({ definitions: [def] }),
+      { from: '2026-03-09', to: '2026-03-11' },
+      opts(NOW),
+    )
+
+    expect(stats).toHaveLength(1)
+    expect(stats[0]!.targetDays).toBe(0)
+  })
+})
+
 describe('habitStats — 수량 습관은 그 시점 목표로 판정한다', () => {
   const history = [
     { from: '2026-03-01T00:00:00+09:00', target: 1000 },
@@ -351,13 +483,15 @@ describe('habitStats — 빠지는 것들', () => {
     expect(stats.map((s) => s.definition.name)).toEqual(['아침 약'])
   })
 
-  it('archived definition도 빠진다', () => {
+  it('archived definition은 그 기간에 대상일이 있었으면 남는다', () => {
     const snapshot = snap({
       definitions: [makeDef({ name: '아침 약' }), makeDef({ name: '옛 습관', archived: true })],
     })
     const stats = habitStats(snapshot, rangeFor('week', TODAY), opts(NOW))
 
-    expect(stats.map((s) => s.definition.name)).toEqual(['아침 약'])
+    expect(stats.map((s) => s.definition.name)).toEqual(['아침 약', '옛 습관'])
+    expect(stats.map((s) => s.definition.archived)).toEqual([false, true])
+    expect(stats.map((s) => s.targetDays)).toEqual([4, 4])
   })
 
   it('다른 definition의 기록은 섞이지 않는다', () => {

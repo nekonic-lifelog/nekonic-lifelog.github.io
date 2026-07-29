@@ -9,7 +9,6 @@ import {
   todayKey,
   type DayKey,
 } from './day'
-import { visibleDefinitions } from './select'
 import { computeStreak, dayStatus, isTargetDay, type StreakOptions } from './streak'
 import type { Book, Definition, JournalKind, LogRecord } from './types'
 
@@ -63,6 +62,25 @@ function recordsOf(def: Definition, records: LogRecord[]): LogRecord[] {
   return records.filter((r) => !r.deleted && r.defId === def.id)
 }
 
+function countedDefinitions(snapshot: Snapshot): Definition[] {
+  return snapshot.definitions
+    .filter((d) => !d.deleted && !d.hidden)
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
+}
+
+function firstCountedDay(
+  def: Definition,
+  own: LogRecord[],
+  boundaryHour: number,
+): DayKey {
+  let floor = logicalDay(def.createdAt, boundaryHour)
+  for (const record of own) {
+    const day = logicalDay(record.at, boundaryHour)
+    if (day < floor) floor = day
+  }
+  return floor
+}
+
 export interface HabitStat {
   definition: Definition
   targetDays: number
@@ -104,27 +122,34 @@ export function habitStats(
   const today = todayKey(opts.clock, opts.boundaryHour)
   const days = daysIn(range).filter((day) => day <= today)
   const at = optsAt(range.to, opts.boundaryHour)
+  const stats: HabitStat[] = []
 
-  return visibleDefinitions(snapshot).map((definition) => {
+  for (const definition of countedDefinitions(snapshot)) {
     const own = recordsOf(definition, snapshot.records)
+    const floor = firstCountedDay(definition, own, opts.boundaryHour)
     let targetDays = 0
     let achievedDays = 0
 
     for (const day of days) {
+      if (day < floor) continue
       if (!isTargetDay(definition, day)) continue
       targetDays += 1
       if (dayStatus(definition, own, day, at).achieved) achievedDays += 1
     }
 
-    return {
+    if (definition.archived && targetDays === 0) continue
+
+    stats.push({
       definition,
       targetDays,
       achievedDays,
       percent: percentOf(achievedDays, targetDays),
       longestStreak: longestStreakIn(definition, own, range, opts.boundaryHour),
       currentStreak: computeStreak(definition, own, opts),
-    }
-  })
+    })
+  }
+
+  return stats
 }
 
 export interface Summary {
