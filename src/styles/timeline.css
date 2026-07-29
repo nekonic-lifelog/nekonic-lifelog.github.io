@@ -3,6 +3,26 @@
   gap: 8px;
 }
 
+.tl-fold {
+  min-width: 0;
+}
+
+.tl-fold .card__head {
+  align-items: center;
+}
+
+.tl-fold .card__head .link-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.tl-fold .tl {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
 .tl__scroll {
   max-width: 100%;
   overflow-x: auto;

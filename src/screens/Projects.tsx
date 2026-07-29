@@ -24,6 +24,7 @@ import type {
 import { useApp } from '../state/app'
 import { useProjects } from '../state/projects'
 import { useTodos } from '../state/todos'
+import { useUndo } from '../ui/Undo'
 
 const MINUTE_MS = 60_000
 
@@ -68,6 +69,18 @@ function usableOffsets(raw: number[] | undefined): number[] {
     kept.add(minutes)
   }
   return [...kept].sort((a, b) => b - a)
+}
+
+export function ProgressBar({ name, percent }: { name: string; percent: number }) {
+  return (
+    <span
+      className="project-bar"
+      role="img"
+      aria-label={`${name} 진행률 ${Math.round(percent)}퍼센트`}
+    >
+      <span className="project-bar__fill" style={{ width: `${percent}%` }} />
+    </span>
+  )
 }
 
 export function AlertChips({
@@ -396,9 +409,7 @@ export function ProjectDetail({
             </span>
           )}
         </div>
-        <span className="project-bar">
-          <span className="project-bar__fill" style={{ width: `${progress.percent}%` }} />
-        </span>
+        <ProgressBar name={project.name} percent={progress.percent} />
         <label className="project-start todo-meta">
           시작일
           <input
@@ -640,8 +651,18 @@ function ProjectChecklist({ project }: { project: Project }) {
 
 function ChecklistRow({ project, item }: { project: Project; item: ChecklistItem }) {
   const api = useProjects()
+  const undo = useUndo()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(item.text)
+
+  const remove = () => {
+    const before = projectChecklist(project)
+    void api.removeChecklistItem(project, item.id)
+    undo.offer({
+      label: `${item.text} 항목 지움`,
+      run: () => api.editProject(project, { checklist: before }),
+    })
+  }
 
   if (editing) {
     return (
@@ -700,7 +721,7 @@ function ChecklistRow({ project, item }: { project: Project; item: ChecklistItem
         type="button"
         className="icon-btn icon-btn--danger"
         aria-label={`${item.text} 항목 삭제`}
-        onClick={() => void api.removeChecklistItem(project, item.id)}
+        onClick={remove}
       >
         ×
       </button>
@@ -812,10 +833,19 @@ function TaskRow({
 }) {
   const api = useProjects()
   const todoApi = useTodos()
+  const undo = useUndo()
   const [extra, setExtra] = useState(false)
   const due = task.dueAt ? logicalDay(task.dueAt, boundaryHour) : null
   const remaining = due ? daysBetween(due, today) : null
   const overdue = remaining !== null && remaining < 0 && task.status !== 'done'
+
+  const remove = () => {
+    void todoApi.removeTodo(task)
+    undo.offer({
+      label: `${task.title} 지움`,
+      run: () => todoApi.editTodo(task, { deleted: false }),
+    })
+  }
 
   return (
     <li className={overdue ? 'project-task todo todo--overdue' : 'project-task todo'}>
@@ -856,7 +886,7 @@ function TaskRow({
       <button
         type="button"
         className="icon-btn icon-btn--danger"
-        onClick={() => void todoApi.removeTodo(task)}
+        onClick={remove}
         aria-label={`${task.title} 삭제`}
       >
         ×

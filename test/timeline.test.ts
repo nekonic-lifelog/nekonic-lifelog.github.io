@@ -77,6 +77,13 @@ function mountScreen(initial: Partial<Snapshot> = {}) {
   )
 }
 
+async function openTimeline(): Promise<void> {
+  const user = userEvent.setup()
+  const toggle = await screen.findByRole('button', { name: /일정 보기/ })
+  expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  await user.click(toggle)
+}
+
 function dated(overrides: Partial<Project> = {}): Project {
   return makeProject({
     name: '이사 준비',
@@ -463,8 +470,16 @@ describe('할 일 날짜 묶기', () => {
 })
 
 describe('간트 화면', () => {
+  it('펼치기 전에는 바가 하나도 없다', async () => {
+    mountScreen({ projects: [dated({ id: 'p1' })] })
+
+    expect(await screen.findByRole('button', { name: /일정 보기/ })).toBeTruthy()
+    expect(screen.queryByLabelText('이사 준비 2026-03-10부터 2026-03-14까지, D-2')).toBeNull()
+  })
+
   it('바 라벨에 이름과 시작·마감 날짜와 남은 날이 들어간다', async () => {
     mountScreen({ projects: [dated({ id: 'p1' })] })
+    await openTimeline()
     expect(
       await screen.findByLabelText('이사 준비 2026-03-10부터 2026-03-14까지, D-2'),
     ).toBeTruthy()
@@ -477,6 +492,7 @@ describe('간트 화면', () => {
         dated({ id: 'p2', name: '논문', startAt: toDueAt('2026-03-11'), dueAt: toDueAt('2026-06-30') }),
       ],
     })
+    await openTimeline()
     expect(await screen.findByLabelText('이사 준비 2026-01-01부터 2026-03-14까지, D-2')).toBeTruthy()
     expect(screen.getByLabelText('논문 2026-03-11부터 2026-06-30까지, D-110')).toBeTruthy()
     expect(screen.queryByLabelText(/범위 밖/)).toBeNull()
@@ -486,11 +502,13 @@ describe('간트 화면', () => {
     mountScreen({
       projects: [dated({ id: 'p1', startAt: toDueAt('2026-03-01'), dueAt: toDueAt('2026-03-09') })],
     })
+    await openTimeline()
     expect(await screen.findByLabelText(/이사 준비.*D\+3, 기한 지남/)).toBeTruthy()
   })
 
   it('마감 없는 프로젝트는 따로 모아 알려준다', async () => {
     mountScreen({ projects: [makeProject({ id: 'p1', name: '언젠가 프로젝트' })] })
+    await openTimeline()
     const hint = await screen.findByText('마감이 없어 표시할 수 없음')
     expect(hint).toBeTruthy()
     const list = hint.parentElement
@@ -501,6 +519,7 @@ describe('간트 화면', () => {
 
   it('프로젝트가 없으면 안내 문구가 뜬다', async () => {
     mountScreen()
+    await openTimeline()
     expect(await screen.findByText('표시할 프로젝트가 없습니다.')).toBeTruthy()
   })
 
@@ -511,6 +530,7 @@ describe('간트 화면', () => {
       todos: [makeTodo({ id: 't1', title: '박스 사기', projectId: 'p1' })],
     })
 
+    await openTimeline()
     await user.click(await screen.findByLabelText(/이사 준비 2026-03-10부터/))
     expect(await screen.findByLabelText('작업 제목')).toBeTruthy()
     expect(screen.getByText('박스 사기')).toBeTruthy()
@@ -518,11 +538,13 @@ describe('간트 화면', () => {
 
   it('보류한 프로젝트도 바를 그리되 라벨로 구분한다', async () => {
     mountScreen({ projects: [dated({ id: 'p1', status: 'held' })] })
+    await openTimeline()
     expect(await screen.findByLabelText(/이사 준비.*, 보류$/)).toBeTruthy()
   })
 
   it('완료한 프로젝트도 바를 그리되 라벨로 구분한다', async () => {
     mountScreen({ projects: [dated({ id: 'p1', status: 'done' })] })
+    await openTimeline()
     expect(await screen.findByLabelText(/이사 준비.*, 완료$/)).toBeTruthy()
   })
 })
@@ -611,6 +633,7 @@ describe('프로젝트 시작일 입력', () => {
     await user.type(screen.getByLabelText('프로젝트 마감일'), '2026-03-20')
     await user.click(screen.getByRole('button', { name: '프로젝트 만들기' }))
 
+    await openTimeline()
     expect(await screen.findByLabelText(/논문 마무리 2026-03-14부터 2026-03-20까지/)).toBeTruthy()
   })
 
@@ -618,6 +641,7 @@ describe('프로젝트 시작일 입력', () => {
     const user = userEvent.setup()
     mountScreen({ projects: [dated({ id: 'p1' })] })
 
+    await openTimeline()
     await user.click(await screen.findByLabelText(/이사 준비 2026-03-10부터/))
     const input = await screen.findByLabelText('프로젝트 시작일')
     expect((input as HTMLInputElement).value).toBe('2026-03-10')
@@ -625,6 +649,7 @@ describe('프로젝트 시작일 입력', () => {
     await user.type(input, '2026-03-12')
     await user.click(screen.getByRole('button', { name: '← 목록' }))
 
+    await openTimeline()
     expect(
       await screen.findByLabelText('이사 준비 2026-03-12부터 2026-03-14까지, D-2'),
     ).toBeTruthy()
