@@ -1,11 +1,30 @@
 import { useEffect, useState } from 'react'
+import { systemClock, type Clock } from './clock'
 
 export interface SwUpdate {
   updateReady: boolean
   applyUpdate(): void
 }
 
-export function useServiceWorker(): SwUpdate {
+export const UPDATE_CHECK_MS = 3_600_000
+
+export interface UpdateGate {
+  due(): boolean
+}
+
+export function makeUpdateGate(clock: Clock, intervalMs = UPDATE_CHECK_MS): UpdateGate {
+  let lastAt: number | null = null
+  return {
+    due() {
+      const now = clock.now()
+      if (lastAt !== null && now - lastAt < intervalMs) return false
+      lastAt = now
+      return true
+    },
+  }
+}
+
+export function useServiceWorker(clock: Clock = systemClock): SwUpdate {
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null)
 
   useEffect(() => {
@@ -20,7 +39,18 @@ export function useServiceWorker(): SwUpdate {
     }
     navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
 
+    const gate = makeUpdateGate(clock)
+    let registration: ServiceWorkerRegistration | null = null
+
+    const recheck = () => {
+      if (document.visibilityState !== 'visible') return
+      if (registration === null || !gate.due()) return
+      void registration.update()
+    }
+
     void navigator.serviceWorker.register('/sw.js').then((reg) => {
+      registration = reg
+      gate.due()
       if (reg.waiting) setWaiting(reg.waiting)
       reg.addEventListener('updatefound', () => {
         const installing = reg.installing
@@ -33,10 +63,13 @@ export function useServiceWorker(): SwUpdate {
       })
     })
 
+    document.addEventListener('visibilitychange', recheck)
+
     return () => {
       navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
+      document.removeEventListener('visibilitychange', recheck)
     }
-  }, [])
+  }, [clock])
 
   return {
     updateReady: waiting !== null,

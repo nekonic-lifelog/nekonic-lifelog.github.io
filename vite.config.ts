@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readdirSync, statSync, writeFileSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
@@ -61,10 +61,14 @@ function serviceWorker(): Plugin {
       const precache = walk(outDir)
         .filter((p) => p !== '/sw.js')
         .sort()
-      const version = createHash('sha256')
-        .update(precache.join('\n'))
-        .digest('hex')
-        .slice(0, 12)
+      const digest = createHash('sha256')
+      for (const path of precache) {
+        digest.update(path)
+        digest.update('\0')
+        digest.update(readFileSync(join(outDir, path.slice(1))))
+        digest.update('\0')
+      }
+      const version = digest.digest('hex').slice(0, 12)
       writeFileSync(
         join(outDir, 'sw.js'),
         swSource(version, precache),
@@ -112,10 +116,10 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (req.mode === 'navigate') {
+    const shell = url.pathname.startsWith('/check') ? '/check.html' : '/index.html'
     event.respondWith(
       fetchAndPut(req).catch(
-        () =>
-          caches.match('/index.html').then((hit) => hit || Response.error()),
+        () => caches.match(shell).then((hit) => hit || Response.error()),
       ),
     )
     return
