@@ -73,7 +73,7 @@ export function Timer() {
         <div className="timer-display" role="timer" aria-label="남은 시간">
           {formatRemaining(state.remainingMs)}
         </div>
-        <p className="timer-phase">
+        <p className="timer-phase" role="status">
           {state.phase === 'done'
             ? '시간이 다 되었습니다.'
             : state.phase === 'paused'

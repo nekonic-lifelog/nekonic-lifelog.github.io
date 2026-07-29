@@ -3,6 +3,7 @@ import { navigate, type Route } from '../lib/router'
 import { isIOS, useStandalone } from '../lib/platform'
 import { useSyncOptional } from '../state/sync'
 import type { SwUpdate } from '../lib/sw'
+import type { SyncState } from '../sync/engine'
 
 const TABS: { route: Route; label: string }[] = [
   { route: '/today', label: '오늘' },
@@ -11,9 +12,50 @@ const TABS: { route: Route; label: string }[] = [
   { route: '/stats', label: '통계' },
 ]
 
+interface DotView {
+  label: string
+  tone: 'ok' | 'warn' | 'bad'
+}
+
+function dotView(state: SyncState): DotView {
+  if (state.authFailed) {
+    return { label: '동기화 막힘 · 토큰을 다시 넣어야 합니다', tone: 'bad' }
+  }
+  if (state.lastError !== null) {
+    return { label: `동기화 문제 · ${state.lastError}`, tone: 'warn' }
+  }
+  if (state.backfilling) return { label: '지난 기록을 받는 중', tone: 'warn' }
+  if (state.pendingCount > 0) {
+    return { label: `못 올린 변경 ${state.pendingCount}건`, tone: 'warn' }
+  }
+  return { label: '동기화 정상', tone: 'ok' }
+}
+
+export function SyncDot({ state, connected }: { state: SyncState; connected: boolean }) {
+  if (!connected) return null
+  const view = dotView(state)
+
+  return (
+    <button
+      type="button"
+      className={`sync-dot sync-dot--${view.tone}`}
+      role="status"
+      aria-label={view.label}
+      title={view.label}
+      onClick={() => navigate('/settings')}
+    />
+  )
+}
+
+export function AppbarSync() {
+  const sync = useSyncOptional()
+  if (sync === null) return null
+  return <SyncDot state={sync.state} connected={sync.connected} />
+}
+
 export function TabBar({ route }: { route: Route }) {
   return (
-    <nav className="tabbar">
+    <nav className="tabbar" aria-label="주요 화면">
       {TABS.map((tab) => (
         <button
           key={tab.route}

@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { ddayLabel } from '../lib/due'
 import { ddayItems, formatRemaining } from '../lib/select'
 import { useApp } from '../state/app'
 
@@ -23,7 +24,11 @@ export function DDay() {
           <ul className="dday-list dday-list--full">
             {items.map(({ todo, due, remaining }, i) => (
               <li key={todo.id} className={i < 2 ? 'dday-row dday-row--onToday' : 'dday-row'}>
-                <span className={remaining < 0 ? 'dday-chip dday-chip--past' : 'dday-chip'}>
+                <span
+                  className={remaining < 0 ? 'dday-chip dday-chip--past' : 'dday-chip'}
+                  role="img"
+                  aria-label={ddayLabel(remaining)}
+                >
                   {formatRemaining(remaining)}
                 </span>
                 <div className="dday-body">

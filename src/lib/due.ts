@@ -70,3 +70,8 @@ export function formatDueLabel(dueAt: string): string {
   if (!d) return typeof dueAt === 'string' ? dueAt : ''
   return `${dueDateValue(dueAt)} ${dueTimeValue(dueAt)}`
 }
+
+export function ddayLabel(remaining: number): string {
+  if (remaining === 0) return '오늘'
+  return remaining > 0 ? `${remaining}일 남음` : `${-remaining}일 지남`
+}

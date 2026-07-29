@@ -11,7 +11,7 @@ import { Stats } from './screens/Stats'
 import { Timer } from './screens/Timer'
 import { Today } from './screens/Today'
 import { Todos } from './screens/Todos'
-import { InstallBanner, TabBar, UpdateBanner } from './ui/Shell'
+import { AppbarSync, InstallBanner, TabBar, UpdateBanner } from './ui/Shell'
 import { useApp } from './state/app'
 
 export function App() {
@@ -33,6 +33,7 @@ export function App() {
           lifelog
         </button>
         <div className="appbar__actions">
+          <AppbarSync />
           <button type="button" className="link-btn" onClick={() => navigate('/dday')}>
             D-day
           </button>

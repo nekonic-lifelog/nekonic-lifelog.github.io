@@ -80,7 +80,31 @@ body {
 
 .appbar__actions {
   display: flex;
+  align-items: center;
   gap: 12px;
+}
+
+.sync-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  min-height: 10px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid transparent;
+}
+
+.sync-dot--ok {
+  background: var(--line);
+}
+
+.sync-dot--warn {
+  background: var(--accent);
+}
+
+.sync-dot--bad {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
 }
 
 .main {
