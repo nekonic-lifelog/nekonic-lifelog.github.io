@@ -4,9 +4,15 @@ import { parseBackup } from '../src/lib/backup'
 import { toDueAt } from '../src/lib/due'
 import {
   DEFAULT_OFFSETS,
+  DEFAULT_TZ,
   GRACE_MS,
   buildReminderFile,
+  emptyReminderFile,
+  isKnownTimeZone,
   isoInZone,
+  listTimeZones,
+  readReminderTz,
+  reminderDeviceIdFrom,
   reminderPathFor,
   sameReminderFile,
   serializeReminderFile,
@@ -417,6 +423,106 @@ describe('스케줄러가 읽는 계약', () => {
 
   it('기기마다 자기 이름의 평문 파일 하나를 쓴다', () => {
     expect(reminderPathFor('phone')).toBe('meta/reminders/phone.json')
+  })
+})
+
+describe('시간대 가려내기', () => {
+  it('IANA 시간대를 받아들인다', () => {
+    for (const tz of ['Asia/Seoul', 'UTC', 'America/New_York', 'Europe/Paris']) {
+      expect(isKnownTimeZone(tz)).toBe(true)
+    }
+  })
+
+  it('없는 시간대와 빈 값을 물리친다', () => {
+    for (const tz of ['어딘가', '', '   ', 'Asia/서울', 'Mars/Olympus']) {
+      expect(isKnownTimeZone(tz)).toBe(false)
+    }
+  })
+
+  it('IANA 이름이 아닌 오프셋 표기는 물리친다', () => {
+    for (const tz of ['+09:00', '-05:00', '+0900']) {
+      expect(isKnownTimeZone(tz)).toBe(false)
+    }
+  })
+
+  it('앞뒤 공백이 붙은 값을 물리친다', () => {
+    expect(isKnownTimeZone(' Asia/Seoul')).toBe(false)
+    expect(isKnownTimeZone('Asia/Seoul ')).toBe(false)
+  })
+
+  it('고를 수 있는 목록은 있으면 IANA 이름들이고 없으면 빈 목록이다', () => {
+    const zones = listTimeZones()
+    expect(Array.isArray(zones)).toBe(true)
+    for (const tz of zones) expect(isKnownTimeZone(tz)).toBe(true)
+  })
+})
+
+describe('알림 파일 비우기', () => {
+  it('세 열쇠를 그대로 갖고 목록만 빈다', () => {
+    const empty = emptyReminderFile('Asia/Seoul')
+
+    expect(Object.keys(empty).sort()).toEqual(['events', 'recurring', 'tz'])
+    expect(empty.tz).toBe('Asia/Seoul')
+    expect(empty.recurring).toEqual([])
+    expect(empty.events).toEqual([])
+  })
+
+  it('비운 파일의 시간대는 남는다', () => {
+    expect(emptyReminderFile('America/New_York').tz).toBe('America/New_York')
+  })
+
+  it('알 수 없는 시간대는 기본값으로 되돌린다', () => {
+    expect(emptyReminderFile('어딘가').tz).toBe(DEFAULT_TZ)
+  })
+
+  it('직렬화한 글이 판정 스크립트가 읽는 모양 그대로다', () => {
+    const text = serializeReminderFile(emptyReminderFile('Asia/Seoul'))
+
+    expect(JSON.parse(text)).toEqual({ tz: 'Asia/Seoul', recurring: [], events: [] })
+    expect(text.endsWith('\n')).toBe(true)
+  })
+
+  it('가득 찬 파일을 비우면 라벨이 한 글자도 남지 않는다', () => {
+    const full = build(
+      [makeTodo({ title: '병원 예약', place: '강남역', note: '보험증', dueAt: '2026-08-03T14:00:00+09:00' })],
+      { recurring: [{ id: 'r-1', at: '18:00', label: '저녁 약', channel: 'discord' }] },
+    )
+    const text = serializeReminderFile(emptyReminderFile(full.tz))
+
+    expect(text).not.toContain('병원 예약')
+    expect(text).not.toContain('저녁 약')
+    expect(text).not.toContain('강남역')
+    expect(text).not.toContain('보험증')
+    expect(readReminderTz(text)).toBe(full.tz)
+  })
+})
+
+describe('원격 알림 파일 읽기', () => {
+  it('경로에서 기기 이름을 뽑는다', () => {
+    expect(reminderDeviceIdFrom('meta/reminders/phone.json')).toBe('phone')
+    expect(reminderDeviceIdFrom('/meta/reminders/pc-2.json')).toBe('pc-2')
+  })
+
+  it('알림 파일이 아닌 경로는 뽑지 않는다', () => {
+    for (const path of [
+      'meta/envelope.json',
+      'meta/reminders/phone.txt',
+      'records/2026-03/phone.json',
+      'meta/reminders/.json',
+      'meta/reminders/a/b.json',
+    ]) {
+      expect(reminderDeviceIdFrom(path)).toBeNull()
+    }
+  })
+
+  it('만든 경로를 그대로 되읽는다', () => {
+    expect(reminderDeviceIdFrom(reminderPathFor('아이폰'))).toBe('아이폰')
+  })
+
+  it('파일에서 시간대를 읽고 못 읽으면 기본값으로 둔다', () => {
+    expect(readReminderTz('{"tz":"UTC","recurring":[],"events":[]}')).toBe('UTC')
+    expect(readReminderTz('{"tz":"어딘가"}')).toBe(DEFAULT_TZ)
+    expect(readReminderTz('망가진 글')).toBe(DEFAULT_TZ)
   })
 })
 

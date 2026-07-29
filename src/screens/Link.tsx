@@ -280,6 +280,10 @@ function ScanCard({ acceptPayload }: Pick<LinkScreenProps, 'acceptPayload'>) {
       <p className="hint">
         기존 기기의 연결 화면에서 QR을 띄운 뒤, 이 기기의 카메라로 비추세요.
       </p>
+      <p className="hint">
+        QR로 이어도 이 기기는 자기 기기 ID를 그대로 씁니다. 보낸 기기의 ID를 물려받지
+        않으므로 두 기기가 서로의 파일을 덮어쓰지 않습니다.
+      </p>
 
       <div className={scanning ? 'link-cam link-cam--on' : 'link-cam'}>
         <video ref={videoRef} className="link-cam__video" playsInline muted />
@@ -355,7 +359,7 @@ function ManualCard({ acceptManual }: Pick<LinkScreenProps, 'acceptManual'>) {
       </div>
       <p className="hint">
         카메라를 쓰지 않아도 됩니다. 토큰과 레포, 암호구절만 있으면 같은 자리로 이어집니다.
-        이 길로 이으면 기기 ID는 새로 발급됩니다.
+        이 길로 이어도 이 기기는 자기 기기 ID를 그대로 씁니다.
       </p>
 
       <form

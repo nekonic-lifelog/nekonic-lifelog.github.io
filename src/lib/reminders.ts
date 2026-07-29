@@ -35,13 +35,22 @@ export const DEFAULT_TZ = 'Asia/Seoul'
 export const DEFAULT_OFFSETS: number[] = [2880, 1440, 120, 60]
 export const MASKED_PROJECT_LABEL = '업무'
 export const GRACE_MS = 86_400_000
+export const REMINDER_DIR = 'meta/reminders'
 
 const FALLBACK_LABEL = '알림'
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 const MINUTE_MS = 60_000
+const REMINDER_PATH_RE = /^\/?meta\/reminders\/([^/]+)\.json$/
+const OFFSET_ZONE_RE = /^[+-]/
 
 export function reminderPathFor(deviceId: string): string {
-  return `meta/reminders/${deviceId}.json`
+  return `${REMINDER_DIR}/${deviceId}.json`
+}
+
+export function reminderDeviceIdFrom(path: string): string | null {
+  const found = REMINDER_PATH_RE.exec(path)
+  const id = found?.[1]
+  return id === undefined || id === '' ? null : id
 }
 
 function pad2(n: number): string {
@@ -72,13 +81,39 @@ function zoneOffsetMinutes(tz: string, ms: number): number {
   return Math.round((asUtc - Math.floor(ms / 1000) * 1000) / MINUTE_MS)
 }
 
-function knownZone(tz: string): boolean {
-  if (tz.trim() === '') return false
+export function isKnownTimeZone(tz: string): boolean {
+  if (typeof tz !== 'string') return false
+  if (tz.trim() === '' || tz.trim() !== tz) return false
+  if (OFFSET_ZONE_RE.test(tz)) return false
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: tz })
     return true
   } catch {
     return false
+  }
+}
+
+export function listTimeZones(): string[] {
+  try {
+    const supported = Intl.supportedValuesOf?.('timeZone')
+    return Array.isArray(supported) ? [...supported] : []
+  } catch {
+    return []
+  }
+}
+
+export function emptyReminderFile(tz: string): ReminderFile {
+  return { tz: isKnownTimeZone(tz) ? tz : DEFAULT_TZ, recurring: [], events: [] }
+}
+
+export function readReminderTz(text: string): string {
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (typeof parsed !== 'object' || parsed === null) return DEFAULT_TZ
+    const tz = (parsed as Record<string, unknown>)['tz']
+    return typeof tz === 'string' && isKnownTimeZone(tz) ? tz : DEFAULT_TZ
+  } catch {
+    return DEFAULT_TZ
   }
 }
 
@@ -174,7 +209,7 @@ function buildRecurring(
 
 export function buildReminderFile(input: ReminderInput): ReminderFile {
   const settings = input.settings
-  const tz = knownZone(settings.tz ?? '') ? settings.tz : DEFAULT_TZ
+  const tz = isKnownTimeZone(settings.tz ?? '') ? settings.tz : DEFAULT_TZ
   const channel = channelOf(settings.notifyChannel, 'discord')
   const offsets = cleanOffsets(settings.defaultOffsets)
   const mask = settings.maskProjectLabels !== false
