@@ -111,11 +111,13 @@ export function AppProvider({
         const next = { ...snapshot.settings, ...patch }
         setSnapshot((s) => ({ ...s, settings: next }))
         await store.putSettings(next)
+        notifyDirty()
       },
 
       async replaceAll(next) {
         await store.replaceAll(next)
         setSnapshot(next)
+        notifyDirty()
       },
 
       async adoptDeviceId(id) {
