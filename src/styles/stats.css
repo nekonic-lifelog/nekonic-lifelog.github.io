@@ -79,6 +79,20 @@
   white-space: nowrap;
 }
 
+.stat-bar--archived {
+  opacity: 0.6;
+}
+
+.stat-bar__tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 999px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
 .stat-bar__count {
   font-size: 13px;
   color: var(--muted);

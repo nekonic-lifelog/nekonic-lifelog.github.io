@@ -145,11 +145,13 @@ export function Stats() {
 function StatBar({ stat }: { stat: HabitStat }) {
   const percent = Math.round(stat.percent)
   const name = stat.definition.name
+  const archived = stat.definition.archived
 
   return (
-    <li className="stat-bar">
+    <li className={archived ? 'stat-bar stat-bar--archived' : 'stat-bar'}>
       <div className="stat-bar__head">
         <span className="stat-bar__name">{name}</span>
+        {archived && <span className="stat-bar__tag">보관</span>}
         <span className="stat-bar__count">
           {`${stat.achievedDays}/${stat.targetDays}일`}
         </span>
@@ -158,7 +160,7 @@ function StatBar({ stat }: { stat: HabitStat }) {
       <div
         className="stat-bar__track"
         role="img"
-        aria-label={`${name} ${percent}퍼센트`}
+        aria-label={archived ? `${name} 보관 ${percent}퍼센트` : `${name} ${percent}퍼센트`}
       >
         <span className="stat-bar__fill" style={{ width: `${percent}%` }} />
       </div>

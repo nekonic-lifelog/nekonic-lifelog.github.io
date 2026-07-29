@@ -886,4 +886,27 @@ describe('통계 화면', () => {
     expect(screen.getByText('이 기간에 남긴 기록이 없습니다.')).toBeTruthy()
     expect(screen.getByText('0%')).toBeTruthy()
   })
+
+  it('보관한 습관은 보관으로 구분해 보여준다', async () => {
+    mount(
+      snap({
+        definitions: [
+          makeDef({ name: '아침 약', order: 0 }),
+          makeDef({ name: '옛 습관', order: 1, archived: true }),
+        ],
+      }),
+    )
+
+    const kept = (await screen.findByText('아침 약')).closest('.stat-bar')!
+    const filed = screen.getByText('옛 습관').closest('.stat-bar')!
+
+    expect(within(filed as HTMLElement).getByText('보관')).toBeTruthy()
+    expect(within(kept as HTMLElement).queryByText('보관')).toBeNull()
+  })
+
+  it('보관한 습관은 막대 설명에도 보관이라고 적힌다', async () => {
+    mount(snap({ definitions: [makeDef({ name: '옛 습관', archived: true })] }))
+
+    expect(await screen.findByLabelText('옛 습관 보관 0퍼센트')).toBeTruthy()
+  })
 })
