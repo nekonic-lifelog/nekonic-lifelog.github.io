@@ -364,3 +364,121 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+.stat-move {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stat-move__label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+
+.stat-move__label strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weekday {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weekday__row {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weekday__cell {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.weekday__label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.weekday__bar {
+  width: 100%;
+  height: 44px;
+  display: flex;
+  align-items: flex-end;
+  background: var(--line);
+  border-radius: 3px;
+}
+
+.weekday__fill {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  background: var(--accent);
+  border-radius: 3px;
+}
+
+.heat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.heat__scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.heat__grid {
+  display: flex;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: max-content;
+}
+
+.heat__week {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.heat__cell {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.heat__cell--on {
+  background: var(--accent);
+}
+
+.heat__cell--off {
+  opacity: 0.35;
+}
+
+.heat__cell--pad {
+  background: transparent;
+}
+
+.weekday__cell--none .weekday__bar {
+  background: transparent;
+  border: 1px dashed var(--line);
+}
+
+.weekday__cell--none .weekday__label {
+  opacity: 0.5;
+}

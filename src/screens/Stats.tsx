@@ -1,15 +1,24 @@
 import { useMemo, useState } from 'react'
 import {
   habitStats,
+  heatTotals,
+  heatmapFor,
   journalStats,
   measureStats,
   rangeFor,
+  rangeLabel,
   readingStats,
   summaryFor,
+  todoStats,
+  weakestWeekday,
+  weekdayStats,
   type HabitStat,
+  type HeatWeek,
   type MeasureStat,
   type Period,
+  type TodoStat,
 } from '../lib/stats'
+import type { Definition, LogRecord } from '../lib/types'
 import { useApp } from '../state/app'
 import '../styles/stats.css'
 
@@ -22,8 +31,12 @@ const PERIODS: [Period, string][] = [
 export function Stats() {
   const app = useApp()
   const [period, setPeriod] = useState<Period>('week')
+  const [offset, setOffset] = useState(0)
 
-  const range = useMemo(() => rangeFor(period, app.today), [period, app.today])
+  const range = useMemo(
+    () => rangeFor(period, app.today, offset),
+    [period, app.today, offset],
+  )
   const opts = useMemo(
     () => ({ boundaryHour: app.boundaryHour, clock: app.clock }),
     [app.boundaryHour, app.clock],
@@ -47,6 +60,11 @@ export function Stats() {
     [app.snapshot, range, opts],
   )
 
+  const todos = useMemo(
+    () => todoStats(app.snapshot, range, opts),
+    [app.snapshot, range, opts],
+  )
+
   const nothingLogged =
     journal.entries === 0 && reading.sessions === 0 && reading.finishedBooks === 0
 
@@ -61,14 +79,39 @@ export function Stats() {
             type="button"
             className={value === period ? 'tab tab--on' : 'tab'}
             aria-pressed={value === period}
-            onClick={() => setPeriod(value)}
+            onClick={() => {
+              setPeriod(value)
+              setOffset(0)
+            }}
           >
             {label}
           </button>
         ))}
       </div>
 
-      <p className="hint stat-range">{`${range.from} ~ ${range.to}`}</p>
+      <div className="stat-move">
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label="이전 기간"
+          onClick={() => setOffset((v) => v - 1)}
+        >
+          ‹
+        </button>
+        <div className="stat-move__label">
+          <strong>{rangeLabel(period, range)}</strong>
+          <span className="hint stat-range">{`${range.from} ~ ${range.to}`}</span>
+        </div>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label="다음 기간"
+          disabled={offset >= 0}
+          onClick={() => setOffset((v) => Math.min(0, v + 1))}
+        >
+          ›
+        </button>
+      </div>
 
       <div className="stat-summary">
         <section className="card stat-figure">
@@ -104,6 +147,17 @@ export function Stats() {
           </ul>
         )}
       </section>
+
+      {stats.length > 0 && (
+        <PatternCard
+          definitions={stats.map((s) => s.definition)}
+          records={app.snapshot.records}
+          range={range}
+          opts={opts}
+        />
+      )}
+
+      {todos.created + todos.completed + todos.open > 0 && <TodoCard stat={todos} />}
 
       {measures.length > 0 && <MeasureCard measures={measures} />}
 
@@ -153,6 +207,194 @@ export function Stats() {
 
 function round(value: number): number {
   return Math.round(value * 10) / 10
+}
+
+function TodoCard({ stat }: { stat: TodoStat }) {
+  return (
+    <section className="card">
+      <div className="card__head">
+        <h2>할 일</h2>
+      </div>
+
+      <ul className="stat-facts">
+        <li className="stat-fact">
+          <span className="stat-fact__value">{`${stat.completed}`}</span>
+          <span className="stat-fact__label">끝낸 것</span>
+        </li>
+        <li className="stat-fact">
+          <span className="stat-fact__value">
+            {stat.onTimePercent === null ? '—' : `${Math.round(stat.onTimePercent)}%`}
+          </span>
+          <span className="stat-fact__label">기한 지킴</span>
+        </li>
+        <li className="stat-fact">
+          <span className="stat-fact__value">
+            {stat.leadTimeDays === null ? '—' : `${round(stat.leadTimeDays)}일`}
+          </span>
+          <span className="stat-fact__label">걸린 날 (중앙값)</span>
+        </li>
+        <li className="stat-fact">
+          <span className="stat-fact__value">{`${stat.open}`}</span>
+          <span className="stat-fact__label">아직 열림</span>
+        </li>
+      </ul>
+
+      {stat.oldestOpen !== null && (
+        <p className="hint">
+          {`가장 오래 열려 있는 것: ${stat.oldestOpen.todo.title} · ${stat.oldestOpen.ageDays}일째`}
+        </p>
+      )}
+
+      {(stat.noDue > 0 || stat.doneWithoutTime > 0) && (
+        <p className="hint">
+          {`기한 없는 것 ${stat.noDue}건 · 끝낸 시각이 없어 준수 판정에서 뺀 것 ${stat.doneWithoutTime}건`}
+        </p>
+      )}
+    </section>
+  )
+}
+
+function PatternCard({
+  definitions,
+  records,
+  range,
+  opts,
+}: {
+  definitions: Definition[]
+  records: LogRecord[]
+  range: { from: string; to: string }
+  opts: { boundaryHour: number; clock: { now(): number } }
+}) {
+  const [open, setOpen] = useState(false)
+  const [pickedId, setPickedId] = useState(definitions[0]?.id ?? '')
+  const picked = definitions.find((d) => d.id === pickedId) ?? definitions[0]!
+
+  return (
+    <section className="card">
+      <button
+        type="button"
+        className="link-btn"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        요일과 한 해 보기
+      </button>
+
+      {open && (
+        <>
+          {definitions.length > 1 && (
+            <label className="overlay__pick">
+              <span className="measure__label">습관</span>
+              <select value={picked.id} onChange={(e) => setPickedId(e.target.value)}>
+                {definitions.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <WeekdayRow def={picked} records={records} range={range} opts={opts} />
+          <Heatmap def={picked} records={records} opts={opts} />
+        </>
+      )}
+    </section>
+  )
+}
+
+function WeekdayRow({
+  def,
+  records,
+  range,
+  opts,
+}: {
+  def: Definition
+  records: LogRecord[]
+  range: { from: string; to: string }
+  opts: { boundaryHour: number; clock: { now(): number } }
+}) {
+  const rows = weekdayStats(def, records, range, opts)
+  const weakest = weakestWeekday(rows)
+
+  return (
+    <div className="weekday">
+      <ul className="weekday__row">
+        {rows.map((row) => (
+          <li
+            key={row.weekday}
+            className={row.targetDays === 0 ? 'weekday__cell weekday__cell--none' : 'weekday__cell'}
+            role="img"
+            aria-label={
+              row.targetDays === 0
+                ? `${row.label}요일 아직 대상 날이 없음`
+                : `${row.label}요일 ${row.targetDays}일 중 ${row.achievedDays}일 달성`
+            }
+          >
+            <span className="weekday__label">{row.label}</span>
+            <span className="weekday__bar">
+              {row.achievedDays > 0 && (
+                <span className="weekday__fill" style={{ height: `${row.percent}%` }} />
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="hint">
+        {weakest === null
+          ? '아직 요일을 가릴 만큼 쌓이지 않았습니다.'
+          : `가장 무너지는 요일은 ${weakest.label}요일입니다 (${Math.round(weakest.percent)}%).`}
+      </p>
+    </div>
+  )
+}
+
+function Heatmap({
+  def,
+  records,
+  opts,
+}: {
+  def: Definition
+  records: LogRecord[]
+  opts: { boundaryHour: number; clock: { now(): number } }
+}) {
+  const today = new Date(opts.clock.now())
+  const year = today.getFullYear()
+  const range = { from: `${year}-01-01`, to: `${year}-12-31` }
+  const weeks: HeatWeek[] = heatmapFor(def, records, range, opts)
+  const totals = heatTotals(weeks)
+
+  return (
+    <div className="heat">
+      <div
+        className="heat__scroll"
+        role="img"
+        aria-label={`${def.name} ${year}년 대상 ${totals.targetDays}일 중 ${totals.achievedDays}일 달성`}
+      >
+        <ul className="heat__grid">
+          {weeks.map((week) => (
+            <li key={week.from} className="heat__week">
+              {week.cells.map((cell, i) => (
+                <span
+                  key={cell === null ? `pad-${i}` : cell.day}
+                  className={
+                    cell === null
+                      ? 'heat__cell heat__cell--pad'
+                      : cell.achieved
+                        ? 'heat__cell heat__cell--on'
+                        : cell.future || !cell.counted
+                          ? 'heat__cell heat__cell--off'
+                          : 'heat__cell'
+                  }
+                  title={cell === null ? undefined : cell.day}
+                />
+              ))}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <p className="hint">{`${year}년 · 대상 ${totals.targetDays}일 중 ${totals.achievedDays}일 달성`}</p>
+    </div>
+  )
 }
 
 function MeasureCard({ measures }: { measures: MeasureStat[] }) {
