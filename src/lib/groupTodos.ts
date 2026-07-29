@@ -42,6 +42,23 @@ function byCreated(a: TodoGroupItem, b: TodoGroupItem): number {
   )
 }
 
+export interface DayTodos {
+  overdue: TodoGroupItem[]
+  due: TodoGroupItem[]
+}
+
+export function todosForDay(
+  snapshot: Snapshot,
+  day: DayKey,
+  boundaryHour: number,
+): DayTodos {
+  const groups = groupTodosByDue(snapshot, day, boundaryHour)
+  return {
+    overdue: groups.find((g) => g.kind === 'overdue')?.items ?? [],
+    due: groups.find((g) => g.kind === 'today')?.items ?? [],
+  }
+}
+
 export function groupTodosByDue(
   snapshot: Snapshot,
   today: DayKey,

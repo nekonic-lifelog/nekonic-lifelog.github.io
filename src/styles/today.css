@@ -1,0 +1,62 @@
+.today-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.today-add input[type='text'] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.today-add button[type='submit'] {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.today-overdue {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.link-btn.today-overdue__toggle {
+  align-self: flex-start;
+  text-align: left;
+  color: var(--danger);
+}
+
+.today-group__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.today-todo .todo-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.today-todo__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+}
+
+.today-todo__meta .project-chip {
+  flex: 0 1 auto;
+  align-self: center;
+}
+
+.today-todo__meta .todo-place {
+  max-width: 100%;
+}
+
+.today-todo__meta .dday-chip {
+  flex: 0 0 auto;
+}

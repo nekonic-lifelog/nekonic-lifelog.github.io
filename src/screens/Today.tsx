@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
-import { addDays, dayKeyToDate, weekdayLabel, weekdayOf } from '../lib/day'
+import { addDays, dayKeyToDate, daysBetween, weekdayLabel, weekdayOf } from '../lib/day'
+import { dueDateValue, toDueAt } from '../lib/due'
+import { todosForDay, type TodoGroupItem } from '../lib/groupTodos'
 import { navigate } from '../lib/router'
 import {
   archivedDefinitions,
   ddayItems,
+  dueDayOf,
   formatRemaining,
-  todosDueBy,
   visibleDefinitions,
 } from '../lib/select'
 import { todoPlace } from '../lib/selectProjects'
@@ -20,7 +22,7 @@ import {
   type DayStatus,
   type HabitView,
 } from '../lib/streak'
-import type { Definition } from '../lib/types'
+import type { Definition, Todo } from '../lib/types'
 import { ScaleChips } from '../ui/ScaleChips'
 import { WeekStrip } from '../ui/WeekStrip'
 import { useApp } from '../state/app'
@@ -28,10 +30,10 @@ import { useHabits } from '../state/habits'
 import { useTodos } from '../state/todos'
 import '../styles/measures.css'
 import '../styles/projects.css'
+import '../styles/today.css'
 
 export function Today() {
   const app = useApp()
-  const todoApi = useTodos()
   const [viewDay, setViewDay] = useState(app.today)
   const boundaryHour = app.snapshot.settings.dayBoundaryHour
 
@@ -52,7 +54,7 @@ export function Today() {
     [app.snapshot, app.today, boundaryHour],
   )
   const todos = useMemo(
-    () => todosDueBy(app.snapshot, viewDay, boundaryHour),
+    () => todosForDay(app.snapshot, viewDay, boundaryHour),
     [app.snapshot, viewDay, boundaryHour],
   )
 
@@ -161,33 +163,144 @@ export function Today() {
             전체 보기
           </button>
         </div>
-        {todos.length === 0 ? (
-          <p className="empty">기한이 걸린 할 일이 없습니다.</p>
+        <QuickTodo viewDay={viewDay} />
+
+        {todos.overdue.length > 0 && (
+          <OverdueTodos
+            items={todos.overdue}
+            viewDay={viewDay}
+            boundaryHour={boundaryHour}
+          />
+        )}
+
+        {todos.due.length === 0 ? (
+          <p className="empty">할 일이 없습니다.</p>
         ) : (
-          <ul className="todo-list">
-            {todos.map((todo) => (
-              <li key={todo.id} className="today-todo">
-                <button
-                  type="button"
-                  className="check"
-                  onClick={() => void todoApi.setTodoStatus(todo, 'done')}
-                  aria-label={`${todo.title} 완료`}
-                />
-                <span className="todo-title">{todo.title}</span>
-                {todoPlace(todo) !== '' && (
-                  <span className="todo-place" title={todoPlace(todo)}>
-                    {todoPlace(todo)}
-                  </span>
-                )}
-                {todo.dueAt && (
-                  <span className="todo-due">{todo.dueAt.slice(0, 10)}</span>
-                )}
-              </li>
-            ))}
-          </ul>
+          <>
+            {todos.overdue.length > 0 && (
+              <p className="today-group__title">{formatDayLabel(viewDay, app.today)}</p>
+            )}
+            <ul className="todo-list">
+              {todos.due.map((item) => (
+                <TodayTodoRow key={item.todo.id} item={item} late={null} />
+              ))}
+            </ul>
+          </>
         )}
       </section>
     </div>
+  )
+}
+
+function QuickTodo({ viewDay }: { viewDay: string }) {
+  const todoApi = useTodos()
+  const [title, setTitle] = useState('')
+  const ready = title.trim() !== ''
+
+  const submit = () => {
+    if (!ready) return
+    void todoApi.addTodo({ title, dueAt: toDueAt(viewDay) })
+    setTitle('')
+  }
+
+  return (
+    <form
+      className="today-add"
+      onSubmit={(e) => {
+        e.preventDefault()
+        submit()
+      }}
+    >
+      <input
+        type="text"
+        value={title}
+        placeholder="할 일 한 줄 적기"
+        onChange={(e) => setTitle(e.target.value)}
+        aria-label="할 일 제목"
+      />
+      <button type="submit" disabled={!ready} aria-label="할 일 추가">
+        추가
+      </button>
+    </form>
+  )
+}
+
+function OverdueTodos({
+  items,
+  viewDay,
+  boundaryHour,
+}: {
+  items: TodoGroupItem[]
+  viewDay: string
+  boundaryHour: number
+}) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="today-overdue">
+      <button
+        type="button"
+        className="link-btn today-overdue__toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        지난 기한 {items.length}건 {open ? '접기' : '펼치기'}
+      </button>
+      {open && (
+        <ul className="todo-list">
+          {items.map((item) => (
+            <TodayTodoRow
+              key={item.todo.id}
+              item={item}
+              late={lateDays(item.todo, viewDay, boundaryHour)}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function lateDays(todo: Todo, viewDay: string, boundaryHour: number): number | null {
+  const due = dueDayOf(todo, boundaryHour)
+  return due === null ? null : daysBetween(due, viewDay)
+}
+
+function TodayTodoRow({ item, late }: { item: TodoGroupItem; late: number | null }) {
+  const todoApi = useTodos()
+  const { todo, project } = item
+  const place = todoPlace(todo)
+  const meta = project !== undefined || place !== '' || late !== null
+
+  return (
+    <li className={late === null ? 'today-todo' : 'today-todo todo--overdue'}>
+      <button
+        type="button"
+        className="check"
+        onClick={() => void todoApi.setTodoStatus(todo, 'done')}
+        aria-label={`${todo.title} 완료`}
+      />
+      <span className="todo-title">{todo.title}</span>
+      {meta && (
+        <span className="today-todo__meta">
+          {project && <span className="badge project-chip">{project.name}</span>}
+          {place !== '' && (
+            <span className="todo-place" title={place}>
+              {place}
+            </span>
+          )}
+          {late !== null && todo.dueAt && (
+            <span
+              className="dday-chip dday-chip--past"
+              title={`기한 ${dueDateValue(todo.dueAt)}`}
+              aria-label={`기한 ${dueDateValue(todo.dueAt)}, ${-late}일 지남`}
+            >
+              {formatRemaining(late)}
+            </span>
+          )}
+        </span>
+      )}
+    </li>
   )
 }
 
@@ -224,7 +337,12 @@ function HabitRow({ view, viewDay }: { view: HabitView; viewDay: string }) {
             </span>
           )}
         </div>
-        <span className="habit__streak" title="연속 달성일">
+        <span
+          className="habit__streak"
+          role="img"
+          aria-label={streakLabel(def.name, view.streak)}
+          title="연속 달성일"
+        >
           {view.streak > 0 ? `🔥 ${view.streak}` : '—'}
         </span>
       </div>
@@ -347,10 +465,22 @@ function ProgressRing({ status }: { status: DayStatus }) {
 
 const MIN_VISIBLE_FILL = 6
 
+function streakLabel(name: string, streak: number): string {
+  return streak > 0 ? `${name} 연속 ${streak}일 달성` : `${name} 연속 달성 없음`
+}
+
+function recentLabel(view: HabitView): string {
+  const span = view.recent.length
+  const targets = view.recent.filter((d) => d.isTargetDay)
+  const done = targets.filter((d) => d.achieved).length
+  if (targets.length === span) return `최근 ${span}일 중 ${done}일 달성`
+  return `최근 ${span}일 중 목표 요일은 ${targets.length}일, 그중 ${done}일 달성`
+}
+
 function RecentDots({ view }: { view: HabitView }) {
   const labelled = view.definition.targetDays !== undefined
   return (
-    <div className="dots">
+    <div className="dots" role="img" aria-label={recentLabel(view)}>
       {view.recent.map((d) => {
         const cls = !d.isTargetDay
           ? 'dot dot--skip'
