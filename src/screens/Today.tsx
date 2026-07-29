@@ -10,17 +10,23 @@ import {
 } from '../lib/select'
 import { todoPlace } from '../lib/selectProjects'
 import {
+  aggregateOf,
+  dailyTotals,
   dayStatus,
   habitView,
+  isScored,
   progressPercent,
+  tallyValue,
   type DayStatus,
   type HabitView,
 } from '../lib/streak'
 import type { Definition } from '../lib/types'
+import { ScaleChips } from '../ui/ScaleChips'
 import { WeekStrip } from '../ui/WeekStrip'
 import { useApp } from '../state/app'
 import { useHabits } from '../state/habits'
 import { useTodos } from '../state/todos'
+import '../styles/measures.css'
 import '../styles/projects.css'
 
 export function Today() {
@@ -31,12 +37,14 @@ export function Today() {
 
   const defs = useMemo(() => visibleDefinitions(app.snapshot), [app.snapshot])
   const archived = useMemo(() => archivedDefinitions(app.snapshot), [app.snapshot])
+  const scoredDefs = useMemo(() => defs.filter((d) => isScored(d)), [defs])
+  const measureDefs = useMemo(() => defs.filter((d) => !isScored(d)), [defs])
   const views = useMemo(
     () =>
-      defs.map((def) =>
+      scoredDefs.map((def) =>
         habitView(def, app.snapshot.records, { boundaryHour, clock: app.clock }),
       ),
-    [defs, app.snapshot.records, boundaryHour, app.clock],
+    [scoredDefs, app.snapshot.records, boundaryHour, app.clock],
   )
 
   const ddays = useMemo(
@@ -133,6 +141,19 @@ export function Today() {
         )}
       </section>
 
+      {measureDefs.length > 0 && (
+        <section className="card">
+          <div className="card__head">
+            <h2>기록</h2>
+          </div>
+          <ul className="measure-list">
+            {measureDefs.map((def) => (
+              <MeasureRow key={def.id} def={def} viewDay={viewDay} />
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="card">
         <div className="card__head">
           <h2>{isToday ? '오늘 할 일' : '이 날까지의 할 일'}</h2>
@@ -211,9 +232,100 @@ function HabitRow({ view, viewDay }: { view: HabitView; viewDay: string }) {
         <RecentDots view={view} />
       </div>
       {def.kind === 'quantity' && (
-        <QuantityControl def={def} day={viewDay} status={status} />
+        <QuantityControl def={def} day={viewDay} count={status.count} />
       )}
     </li>
+  )
+}
+
+function MeasureRow({ def, viewDay }: { def: Definition; viewDay: string }) {
+  const app = useApp()
+  const habits = useHabits()
+  const boundaryHour = app.snapshot.settings.dayBoundaryHour
+  const tally = useMemo(
+    () => dailyTotals(def, app.snapshot.records, boundaryHour).get(viewDay),
+    [def, app.snapshot.records, boundaryHour, viewDay],
+  )
+
+  const count = tally?.count ?? 0
+  const empty = count === 0 || tally === undefined
+  const value = tally ? tallyValue(def, tally) : 0
+  const keepsLast = aggregateOf(def) === 'last'
+  const suffix = def.unit ? ` ${def.unit}` : ''
+  const at = empty ? '아직 기록 없음' : formatClock(tally.lastAt)
+  const label = empty
+    ? `${def.name} 아직 기록이 없습니다`
+    : `${def.name} ${keepsLast ? '마지막 값' : '합계'} ${value}${suffix}, 마지막 기록 ${at}`
+
+  return (
+    <li className="measure">
+      <div className="measure__main">
+        <span className="measure__name">{def.name}</span>
+        <span className="measure__read" role="img" aria-label={label}>
+          <span className="measure__value">{empty ? '—' : `${value}${suffix}`}</span>
+          <span className="measure__at">{at}</span>
+        </span>
+      </div>
+      {def.scale ? (
+        <div className="measure__scale">
+          <ScaleChips
+            name={def.name}
+            min={def.scale.min}
+            max={def.scale.max}
+            unit={def.unit}
+            selected={keepsLast && !empty ? value : null}
+            onPick={(picked) => void habits.addQuantity(def, viewDay, picked)}
+          />
+          <UndoButton
+            def={def}
+            day={viewDay}
+            empty={empty}
+            label={`${def.name} 마지막 기록 취소`}
+          />
+        </div>
+      ) : (
+        <QuantityControl
+          def={def}
+          day={viewDay}
+          count={count}
+          addLabel={`${def.name} 추가`}
+          undoLabel={`${def.name} 마지막 기록 취소`}
+        />
+      )}
+    </li>
+  )
+}
+
+function formatClock(at: string | undefined): string {
+  if (at === undefined) return '아직 기록 없음'
+  const d = new Date(at)
+  if (Number.isNaN(d.getTime())) return '시각 알 수 없음'
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function UndoButton({
+  def,
+  day,
+  empty,
+  label = '마지막 입력 취소',
+}: {
+  def: Definition
+  day: string
+  empty: boolean
+  label?: string
+}) {
+  const habits = useHabits()
+  return (
+    <button
+      type="button"
+      className="qty__undo"
+      disabled={empty}
+      onClick={() => void habits.undoLast(def, day)}
+      aria-label={label}
+      title={label}
+    >
+      ↺
+    </button>
   )
 }
 
@@ -258,15 +370,19 @@ function RecentDots({ view }: { view: HabitView }) {
 function QuantityControl({
   def,
   day,
-  status,
+  count,
+  addLabel = '추가',
+  undoLabel = '마지막 입력 취소',
 }: {
   def: Definition
   day: string
-  status: DayStatus
+  count: number
+  addLabel?: string
+  undoLabel?: string
 }) {
   const habits = useHabits()
   const [amount, setAmount] = useState('')
-  const empty = status.count === 0
+  const empty = count === 0
 
   const step = () => {
     const parsed = Number(amount)
@@ -289,19 +405,10 @@ function QuantityControl({
         }}
         aria-label={`${def.name} 추가할 양`}
       />
-      <button type="button" className="qty__add" onClick={step} aria-label="추가">
+      <button type="button" className="qty__add" onClick={step} aria-label={addLabel}>
         +
       </button>
-      <button
-        type="button"
-        className="qty__undo"
-        disabled={empty}
-        onClick={() => void habits.undoLast(def, day)}
-        aria-label="마지막 입력 취소"
-        title="마지막 입력 취소"
-      >
-        ↺
-      </button>
+      <UndoButton def={def} day={day} empty={empty} label={undoLabel} />
     </div>
   )
 }
