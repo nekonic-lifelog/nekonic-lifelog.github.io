@@ -136,7 +136,7 @@ export function isTargetDay(def: Definition, day: DayKey): boolean {
   return days.includes(weekdayOf(day))
 }
 
-function statusOn(
+export function statusFrom(
   def: Definition,
   day: DayKey,
   totals: Map<DayKey, DayTally>,
@@ -167,7 +167,7 @@ export function dayStatus(
   day: DayKey,
   opts: StreakOptions,
 ): DayStatus {
-  return statusOn(def, day, dailyTotals(def, records, opts.boundaryHour), opts.boundaryHour)
+  return statusFrom(def, day, dailyTotals(def, records, opts.boundaryHour), opts.boundaryHour)
 }
 
 function walkStreak(
@@ -181,7 +181,7 @@ function walkStreak(
   let floor = logicalDay(def.createdAt, boundaryHour)
   for (const day of totals.keys()) if (day < floor) floor = day
 
-  const achieved = (day: DayKey) => statusOn(def, day, totals, boundaryHour).achieved
+  const achieved = (day: DayKey) => statusFrom(def, day, totals, boundaryHour).achieved
 
   let streak = 0
   let day = today
@@ -221,7 +221,7 @@ export function habitView(
   return {
     definition: def,
     streak: walkStreak(def, totals, today, boundaryHour),
-    recent: lastNDays(today, recentCount).map((d) => statusOn(def, d, totals, boundaryHour)),
-    today: statusOn(def, today, totals, boundaryHour),
+    recent: lastNDays(today, recentCount).map((d) => statusFrom(def, d, totals, boundaryHour)),
+    today: statusFrom(def, today, totals, boundaryHour),
   }
 }

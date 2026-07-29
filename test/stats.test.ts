@@ -12,6 +12,7 @@ import {
   longestStreakIn,
   measureStats,
   rangeFor,
+  rangeLabel,
   readingStats,
   summaryFor,
   type HabitStat,
@@ -156,6 +157,79 @@ describe('기간 경계 — 월과 연', () => {
 
   it('뒤집힌 구간은 빈 목록이다', () => {
     expect(daysIn({ from: '2026-03-12', to: '2026-03-09' })).toEqual([])
+  })
+})
+
+describe('기간 이동 — 앞뒤로 옮긴다', () => {
+  it('오프셋 없이 부르던 자리는 그대로 이번 기간이다', () => {
+    expect(rangeFor('week', TODAY)).toEqual(rangeFor('week', TODAY, 0))
+    expect(rangeFor('month', TODAY)).toEqual(rangeFor('month', TODAY, 0))
+    expect(rangeFor('year', TODAY)).toEqual(rangeFor('year', TODAY, 0))
+  })
+
+  it('-1은 지난주다', () => {
+    expect(rangeFor('week', TODAY, -1)).toEqual({ from: '2026-03-02', to: '2026-03-08' })
+    expect(rangeFor('week', TODAY, -2)).toEqual({ from: '2026-02-23', to: '2026-03-01' })
+  })
+
+  it('-1은 지난달이다', () => {
+    expect(rangeFor('month', TODAY, -1)).toEqual({ from: '2026-02-01', to: '2026-02-28' })
+  })
+
+  it('-1은 지난해다', () => {
+    expect(rangeFor('year', TODAY, -1)).toEqual({ from: '2025-01-01', to: '2025-12-31' })
+  })
+
+  it('해를 넘어서도 옮겨진다', () => {
+    expect(rangeFor('month', '2026-01-15', -1)).toEqual({
+      from: '2025-12-01',
+      to: '2025-12-31',
+    })
+    expect(rangeFor('month', TODAY, -13)).toEqual({ from: '2025-02-01', to: '2025-02-28' })
+    expect(rangeFor('week', '2026-01-01', -1)).toEqual({
+      from: '2025-12-22',
+      to: '2025-12-28',
+    })
+  })
+
+  it('지난달의 말일을 이번 달 길이로 늘리지 않는다', () => {
+    expect(rangeFor('month', '2026-03-31', -1)).toEqual({
+      from: '2026-02-01',
+      to: '2026-02-28',
+    })
+    expect(rangeFor('month', '2024-03-31', -1)).toEqual({
+      from: '2024-02-01',
+      to: '2024-02-29',
+    })
+  })
+
+  it('미래로는 넘어가지 않는다 — 양수는 이번 기간에서 멈춘다', () => {
+    expect(rangeFor('week', TODAY, 1)).toEqual(rangeFor('week', TODAY))
+    expect(rangeFor('month', TODAY, 3)).toEqual(rangeFor('month', TODAY))
+    expect(rangeFor('year', TODAY, 99)).toEqual(rangeFor('year', TODAY))
+  })
+
+  it('옮겨도 구간 길이 규칙은 그대로다', () => {
+    expect(daysIn(rangeFor('week', TODAY, -5))).toHaveLength(7)
+    expect(daysIn(rangeFor('year', TODAY, -1))).toHaveLength(365)
+    expect(daysIn(rangeFor('year', TODAY, -2))).toHaveLength(366)
+  })
+})
+
+describe('rangeLabel — 보고 있는 기간의 이름', () => {
+  it('연은 해를 적는다', () => {
+    expect(rangeLabel('year', rangeFor('year', TODAY))).toBe('2026')
+    expect(rangeLabel('year', rangeFor('year', TODAY, -1))).toBe('2025')
+  })
+
+  it('월은 해와 달을 적는다', () => {
+    expect(rangeLabel('month', rangeFor('month', TODAY))).toBe('2026-03')
+    expect(rangeLabel('month', rangeFor('month', TODAY, -1))).toBe('2026-02')
+  })
+
+  it('주는 시작한 날을 적는다', () => {
+    expect(rangeLabel('week', rangeFor('week', TODAY))).toBe('2026-03-09 주')
+    expect(rangeLabel('week', rangeFor('week', TODAY, -1))).toBe('2026-03-02 주')
   })
 })
 
