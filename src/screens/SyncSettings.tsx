@@ -56,6 +56,7 @@ export function SyncSettings() {
           </div>
 
           {sync.connected && <ResyncRow onResync={() => void sync.resyncAll()} />}
+          {sync.connected && <PassphraseRow onAdd={(a, b) => sync.addPassphrase(a, b)} />}
         </section>
       )}
     </>
@@ -96,6 +97,88 @@ function ResyncRow({ onResync }: { onResync(): void }) {
         </button>
       </div>
     </div>
+  )
+}
+
+function PassphraseRow({ onAdd }: { onAdd(current: string, next: string): Promise<void> }) {
+  const [open, setOpen] = useState(false)
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+
+  const submit = async () => {
+    setBusy(true)
+    setMessage(null)
+    try {
+      await onAdd(current, next)
+      setMessage({
+        kind: 'ok',
+        text: '더했습니다. 새 암호구절로 한 번 열어보고 나서 옛 것을 버리세요.',
+      })
+      setCurrent('')
+      setNext('')
+    } catch (err) {
+      setMessage({
+        kind: 'error',
+        text: err instanceof Error ? err.message : '더하지 못했습니다.',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="btn-row">
+        <button type="button" className="link-btn" onClick={() => setOpen(true)}>
+          암호구절 더하기
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <form
+      className="resync"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void submit()
+      }}
+    >
+      <p className="hint">
+        암호구절은 모든 기기가 막혔을 때 쓰는 마지막 열쇠입니다. 새 것을 먼저 더해 두고,
+        실제로 열리는지 확인한 뒤에 옛 것을 버리세요. 이 순서를 지키면 중간에 실패해도
+        잠기지 않습니다.
+      </p>
+      <input
+        type="password"
+        value={current}
+        placeholder="지금 쓰는 암호구절"
+        onChange={(e) => setCurrent(e.target.value)}
+        aria-label="지금 쓰는 암호구절"
+      />
+      <input
+        type="password"
+        value={next}
+        placeholder="더할 암호구절"
+        onChange={(e) => setNext(e.target.value)}
+        aria-label="더할 암호구절"
+      />
+      <div className="btn-row">
+        <button type="submit" disabled={busy || !current || !next}>
+          {busy ? '더하는 중…' : '더하기'}
+        </button>
+        <button type="button" onClick={() => setOpen(false)}>
+          닫기
+        </button>
+      </div>
+      {message && (
+        <p className={message.kind === 'error' ? 'msg msg--error' : 'msg msg--ok'}>
+          {message.text}
+        </p>
+      )}
+    </form>
   )
 }
 

@@ -8,7 +8,13 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { createEnvelope, openEnvelope, parseEnvelope, type Envelope } from '../crypto/envelope'
+import {
+  addPassphrase as addWrap,
+  createEnvelope,
+  openEnvelope,
+  parseEnvelope,
+  type Envelope,
+} from '../crypto/envelope'
 import type { Snapshot, Store } from '../data/store'
 import type { Clock } from '../lib/clock'
 import { GithubRepo } from '../remote/github'
@@ -52,6 +58,7 @@ export interface SyncApi {
   connectWithKey(input: ConnectWithKeyInput): Promise<void>
   disconnect(): Promise<void>
   resyncAll(): Promise<void>
+  addPassphrase(current: string, next: string): Promise<void>
   syncNow(): Promise<void>
   markDirty(): void
   retryAuth(token: string): Promise<void>
@@ -250,6 +257,22 @@ export function SyncProvider(props: SyncProviderProps) {
         await syncCache.clear()
         setState(initialSyncState())
         await start(saved)
+      },
+
+      async addPassphrase(current, next) {
+        const saved = await vault.load()
+        if (saved === null) {
+          throw new SyncSetupError('저장소에 먼저 이어야 암호구절을 더할 수 있습니다.')
+        }
+        const opened = await openEnvelope(saved.envelope, current)
+        const grown = await addWrap(opened.envelope, opened.raw, next)
+        const repo = build(saved.remote, saved.token)
+        const bytes = new TextEncoder().encode(`${JSON.stringify(grown, null, 2)}\n`)
+        await repo.commitWithRetry(async () => ({
+          message: '봉투에 암호구절 더하기',
+          put: [{ path: ENVELOPE_PATH, content: bytes }],
+        }))
+        await vault.save({ ...saved, envelope: grown })
       },
 
       async syncNow() {
