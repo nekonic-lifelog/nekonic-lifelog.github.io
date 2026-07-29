@@ -1,7 +1,8 @@
+import { cacheVersionOf, swVerdict, usageVerdict, type Verdict } from './diagnose'
+
 const PROBE_DB = 'lifelog-probe'
 const PROBE_STORE = 'probe'
-
-type Verdict = 'ok' | 'bad' | 'warn'
+const APP_DB = 'lifelog'
 
 const app = document.getElementById('app')!
 
@@ -405,12 +406,155 @@ function probeCamera(standalone: boolean) {
   actions.after(video)
 }
 
+function probeServiceWorker() {
+  const { out, actions } = card(
+    6,
+    '서비스워커와 캐시',
+    '오프라인에서 앱이 뜨는지, 새 버전이 대기 중인지, 옛 캐시가 남았는지 봅니다.',
+  )
+
+  actions.append(
+    button('확인', async () => {
+      const supported = 'serviceWorker' in navigator
+      if (!supported) {
+        const judged = swVerdict({
+          supported: false,
+          registered: false,
+          hasActive: false,
+          hasWaiting: false,
+          controlled: false,
+          caches: [],
+        })
+        report(out, judged.verdict, judged.lines)
+        return
+      }
+
+      const reg = await navigator.serviceWorker.getRegistration()
+      const names = 'caches' in self ? await caches.keys() : []
+      const judged = swVerdict({
+        supported: true,
+        registered: reg !== undefined,
+        hasActive: reg?.active != null,
+        hasWaiting: reg?.waiting != null,
+        controlled: navigator.serviceWorker.controller !== null,
+        caches: cacheVersionOf(names),
+      })
+      report(out, judged.verdict, judged.lines)
+    }),
+  )
+}
+
+function probeStorageUsage() {
+  const { out, actions } = card(
+    7,
+    '저장소 사용량',
+    '얼마나 쓰고 있고 얼마나 남았는지 봅니다. 앱 데이터는 읽지 않고 크기만 묻습니다.',
+  )
+
+  actions.append(
+    button('확인', async () => {
+      if (typeof navigator.storage?.estimate !== 'function') {
+        report(out, 'warn', [
+          'storage.estimate가 없습니다.',
+          '',
+          '이 기기에서는 남은 공간을 알 수 없습니다.',
+        ])
+        return
+      }
+      const est = await navigator.storage.estimate()
+      const judged = usageVerdict(est.usage, est.quota)
+      report(out, judged.verdict, judged.lines)
+    }),
+  )
+}
+
+function probeAppData() {
+  const { out, actions } = card(
+    8,
+    '앱 데이터가 있는지',
+    '앱 저장소의 행 수만 셉니다. 내용은 읽지 않고 쓰지도 않습니다.',
+  )
+
+  actions.append(
+    button('세어보기', async () => {
+      const db = await new Promise<IDBDatabase | null>((resolve) => {
+        const req = indexedDB.open(APP_DB)
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => resolve(null)
+      })
+      if (db === null) {
+        report(out, 'warn', ['앱 저장소를 열지 못했습니다.'])
+        return
+      }
+
+      const names = Array.from(db.objectStoreNames)
+      if (names.length === 0) {
+        db.close()
+        report(out, 'warn', ['앱 저장소가 비어 있습니다.', '', '아직 앱을 쓰지 않았거나 지워졌습니다.'])
+        return
+      }
+
+      const lines: string[] = []
+      let total = 0
+      for (const name of names) {
+        const n = await new Promise<number>((resolve) => {
+          const req = db.transaction(name, 'readonly').objectStore(name).count()
+          req.onsuccess = () => resolve(req.result)
+          req.onerror = () => resolve(-1)
+        })
+        lines.push(`${name}: ${n < 0 ? '셀 수 없음' : `${n}행`}`)
+        if (n > 0) total += n
+      }
+      db.close()
+
+      lines.push('', total > 0 ? '앱 데이터가 남아 있습니다.' : '아직 아무것도 없습니다.')
+      report(out, total > 0 ? 'ok' : 'warn', lines)
+    }),
+  )
+}
+
+function probeOfflineShell() {
+  const { out, actions } = card(
+    9,
+    '오프라인에서 이 페이지',
+    '이 진단 페이지가 캐시에 있는지 봅니다. 없으면 정작 오프라인일 때 이 페이지를 열 수 없습니다.',
+  )
+
+  actions.append(
+    button('확인', async () => {
+      if (!('caches' in self)) {
+        report(out, 'warn', ['Cache Storage가 없습니다.'])
+        return
+      }
+      const wanted = ['/check.html', '/index.html']
+      const lines: string[] = []
+      let missing = 0
+      for (const path of wanted) {
+        const hit = await caches.match(path)
+        lines.push(`${path}: ${hit ? '캐시에 있음' : '없음'}`)
+        if (!hit) missing += 1
+      }
+      lines.push(
+        '',
+        missing === 0
+          ? '망이 끊겨도 이 페이지와 앱이 열립니다.'
+          : '캐시에 없는 것이 있습니다. 서비스워커가 아직 설치되지 않았을 수 있습니다.',
+      )
+      report(out, missing === 0 ? 'ok' : 'warn', lines)
+    }),
+  )
+}
+
 const { standalone } = environment()
 probeKeyDerivation()
 probeKeyStorage()
 probeCompression()
 probePersist()
 probeCamera(standalone)
+probeServiceWorker()
+probeStorageUsage()
+probeAppData()
+probeOfflineShell()
 
 app.append(
   el('p', {
