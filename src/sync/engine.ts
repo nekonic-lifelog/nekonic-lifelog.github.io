@@ -1,5 +1,5 @@
 import { openJson, sealJson } from '../crypto/cipher'
-import type { Snapshot, Store, TableName } from '../data/store'
+import type { RowTypes, Snapshot, Store, TableName } from '../data/store'
 import type { Clock } from '../lib/clock'
 import {
   buildReminderFile,
@@ -296,8 +296,8 @@ export class SyncEngine {
     if (read > 0) {
       const local = await this.#opts.store.loadAll()
       const merged = mergeSnapshots(local, bag as Partial<Snapshot>)
-      await this.#opts.store.replaceAll(merged)
-      this.#opts.onSnapshot?.(merged)
+      const wrote = await this.#absorb(local, merged)
+      this.#opts.onSnapshot?.(wrote ? await this.#opts.store.loadAll() : merged)
     }
 
     await this.#cache.save({
@@ -308,6 +308,18 @@ export class SyncEngine {
       reminders: cache.reminders,
     })
     return soft
+  }
+
+  async #absorb(local: Snapshot, merged: Snapshot): Promise<boolean> {
+    let wrote = false
+    for (const table of TABLE_ORDER) {
+      const before = new Map((local[table] as Base[]).map((row) => [row.id, row]))
+      const rows = (merged[table] as Base[]).filter((row) => before.get(row.id) !== row)
+      if (rows.length === 0) continue
+      await this.#opts.store.put(table, rows as RowTypes[TableName][])
+      wrote = true
+    }
+    return wrote
   }
 
   async #push(): Promise<string | null> {
