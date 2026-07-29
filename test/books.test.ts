@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { RowTypes, Snapshot, TableName } from '../src/data/store'
-import type { WriteCtx } from '../src/data/mutations'
+import { createBase, type WriteCtx } from '../src/data/mutations'
 import { mutableClock } from '../src/lib/clock'
 import { todayKey } from '../src/lib/day'
 import {
@@ -8,6 +8,7 @@ import {
   isPresetAdded,
   presetDefinitionInput,
   presetGroups,
+  presetSummary,
   type DefinitionPreset,
 } from '../src/lib/presets'
 import { visibleDefinitions } from '../src/lib/select'
@@ -18,11 +19,18 @@ import {
   booksByStatus,
   liveBooks,
 } from '../src/lib/selectBooks'
-import { dayStatus, effectiveTarget, habitView, progressPercent } from '../src/lib/streak'
+import {
+  computeStreak,
+  dayStatus,
+  effectiveTarget,
+  habitView,
+  progressPercent,
+} from '../src/lib/streak'
 import { DEFAULT_SETTINGS, type Book, type Definition } from '../src/lib/types'
 import { mergeById, type AppApi } from '../src/state/app'
 import { createBooksApi, PAGE_UNIT } from '../src/state/books'
-import { resetIds } from './factories'
+import { definitionFrom } from '../src/state/habits'
+import { makeRecord, resetIds } from './factories'
 
 const NOW = '2026-03-12T20:00:00+09:00'
 const BOUNDARY = 4
@@ -519,11 +527,45 @@ describe('정의 프리셋', () => {
     expect(water.group).toBe('음료')
   })
 
-  it('카페인은 하루 400mg 목표의 수량형이다', () => {
+  it('카페인은 목표 없이 기록만 남기는 수량형이다', () => {
     const caffeine = byKey('caffeine')
     expect(caffeine.kind).toBe('quantity')
     expect(caffeine.unit).toBe('mg')
-    expect(caffeine.target).toBe(400)
+    expect(caffeine.target).toBeUndefined()
+    expect(caffeine.scored).toBe(false)
+  })
+
+  it('카페인 프리셋으로 만든 정의는 판정 대상이 아니다', () => {
+    const base = createBase({ deviceId: DEVICE, clock: mutableClock(NOW) })
+    const def = definitionFrom(presetDefinitionInput(byKey('caffeine')), base, 0)
+    const records = [
+      makeRecord(def.id, '2026-03-10T09:00:00+09:00', 150),
+      makeRecord(def.id, '2026-03-11T09:00:00+09:00', 150),
+      makeRecord(def.id, '2026-03-12T09:00:00+09:00', 150),
+    ]
+    const at = { boundaryHour: BOUNDARY, clock: mutableClock(NOW) }
+
+    expect(def.scored).toBe(false)
+    expect(def.targetHistory).toEqual([])
+    expect(computeStreak(def, records, at)).toBe(0)
+    expect(dayStatus(def, records, '2026-03-12', at).scored).toBe(false)
+    expect(dayStatus(def, records, '2026-03-12', at).total).toBe(150)
+  })
+
+  it('물 프리셋은 그대로 목표가 있는 판정 지표다', () => {
+    const base = createBase({ deviceId: DEVICE, clock: mutableClock(NOW) })
+    const def = definitionFrom(presetDefinitionInput(byKey('water')), base, 0)
+
+    expect(byKey('water').scored).toBeUndefined()
+    expect(def.scored).toBeUndefined()
+    expect(def.targetHistory).toEqual([{ from: base.createdAt, target: 2000 }])
+    expect(dayStatus(def, [], '2026-03-12', { boundaryHour: BOUNDARY, clock: mutableClock(NOW) }).scored).toBe(true)
+  })
+
+  it('요약 문구가 목표 없는 지표를 목표처럼 보이게 하지 않는다', () => {
+    expect(presetSummary(byKey('water'))).toBe('하루 2000ml')
+    expect(presetSummary(byKey('caffeine'))).toBe('mg 기록')
+    expect(presetSummary(byKey('med-morning'))).toBe('체크')
   })
 
   it('약과 영양제와 운동은 체크형이다', () => {
@@ -563,6 +605,13 @@ describe('정의 프리셋', () => {
       kind: 'check',
       unit: undefined,
       target: undefined,
+    })
+    expect(presetDefinitionInput(byKey('caffeine'))).toEqual({
+      name: '카페인',
+      kind: 'quantity',
+      unit: 'mg',
+      target: undefined,
+      scored: false,
     })
   })
 

@@ -1,4 +1,4 @@
-import type { DefinitionKind } from './types'
+import type { Aggregate, DefinitionKind, Scale } from './types'
 
 export interface DefinitionPreset {
   key: string
@@ -7,6 +7,9 @@ export interface DefinitionPreset {
   kind: DefinitionKind
   unit?: string | undefined
   target?: number | undefined
+  scored?: boolean | undefined
+  aggregate?: Aggregate | undefined
+  scale?: Scale | undefined
 }
 
 export interface PresetGroup {
@@ -19,6 +22,9 @@ export interface PresetDefinitionInput {
   kind: DefinitionKind
   unit?: string | undefined
   target?: number | undefined
+  scored?: boolean | undefined
+  aggregate?: Aggregate | undefined
+  scale?: Scale | undefined
 }
 
 export const DEFINITION_PRESETS: DefinitionPreset[] = [
@@ -28,7 +34,7 @@ export const DEFINITION_PRESETS: DefinitionPreset[] = [
   { key: 'supp-omega-3', label: '오메가3', group: '영양제', kind: 'check' },
   { key: 'supp-magnesium', label: '마그네슘', group: '영양제', kind: 'check' },
   { key: 'water', label: '물', group: '음료', kind: 'quantity', unit: 'ml', target: 2000 },
-  { key: 'caffeine', label: '카페인', group: '음료', kind: 'quantity', unit: 'mg', target: 400 },
+  { key: 'caffeine', label: '카페인', group: '음료', kind: 'quantity', unit: 'mg', scored: false },
   { key: 'exercise', label: '운동', group: '운동', kind: 'check' },
 ]
 
@@ -48,6 +54,9 @@ export function presetDefinitionInput(preset: DefinitionPreset): PresetDefinitio
     kind: preset.kind,
     unit: preset.kind === 'quantity' ? preset.unit : undefined,
     target: preset.kind === 'quantity' ? preset.target : undefined,
+    scored: preset.scored,
+    aggregate: preset.aggregate,
+    scale: preset.scale,
   }
 }
 
@@ -58,5 +67,6 @@ export function isPresetAdded(preset: DefinitionPreset, existingNames: string[])
 export function presetSummary(preset: DefinitionPreset): string {
   if (preset.kind === 'check') return '체크'
   const unit = preset.unit ?? ''
+  if (preset.scored === false) return `${unit} 기록`.trim()
   return preset.target !== undefined ? `하루 ${preset.target}${unit}` : `수량 ${unit}`.trim()
 }
