@@ -398,14 +398,26 @@ describe('오늘 화면과 이어 붙이기', () => {
     const user = userEvent.setup()
     mountToday({ todos })
 
-    expect(await screen.findByText('어제 일')).toBeTruthy()
+    expect(await screen.findByRole('button', { name: /지난 기한 2건/ })).toBeTruthy()
+    expect(screen.queryByText('어제 일')).toBeNull()
 
     await user.click(screen.getByLabelText(/3월 9일 월요일/))
 
-    await waitFor(() => expect(screen.queryByText('어제 일')).toBeNull())
-    expect(screen.getByText('지난 일')).toBeTruthy()
+    await waitFor(() => expect(screen.getByText('지난 일')).toBeTruthy())
+    expect(screen.queryByText('어제 일')).toBeNull()
+    expect(screen.queryByRole('button', { name: /지난 기한/ })).toBeNull()
     expect(screen.getByText('3월 9일 (월)')).toBeTruthy()
     expect(screen.getByText('이 날까지의 할 일')).toBeTruthy()
+  })
+
+  it('지난 기한을 펼치면 그 날까지 밀린 것이 다 보인다', async () => {
+    const user = userEvent.setup()
+    mountToday({ todos })
+
+    await user.click(await screen.findByRole('button', { name: /지난 기한 2건/ }))
+
+    expect(await screen.findByText('어제 일')).toBeTruthy()
+    expect(screen.getByText('지난 일')).toBeTruthy()
   })
 
   it('좌우 화살표로 옮기면 띠의 선택도 따라 움직인다', async () => {
