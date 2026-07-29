@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { Snapshot } from '../data/store'
 import { BackupError, parseBackup, serializeBackup } from '../lib/backup'
+import type { Clock } from '../lib/clock'
 import { weekdayLabel } from '../lib/day'
 import { managedDefinitions } from '../lib/select'
 import { effectiveTarget } from '../lib/streak'
@@ -36,20 +38,32 @@ export function Settings() {
   )
 }
 
+function downloadBackup(snapshot: Snapshot, clock: Clock): string {
+  const json = serializeBackup(snapshot, clock)
+  const stamp = new Date(clock.now()).toISOString().slice(0, 10)
+  const name = `lifelog-${stamp}.json`
+  const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(url)
+  return name
+}
+
+const IMPORT_WARNING =
+  '현재 데이터를 전부 지우고 불러온 내용으로 바꿉니다.\n' +
+  '로컬만 바뀌는 것이 아닙니다. 동기화를 켜 두었다면 다음 올리기 때 원격 저장소의 이 기기 파일까지 ' +
+  '옛 내용으로 덮이고, 다른 기기에서도 그 뒤로 최근 기록이 사라집니다.\n' +
+  '되돌릴 수 있도록, 진행하기 전에 지금 데이터를 백업 파일로 자동 저장합니다.'
+
 function BackupSection() {
   const app = useApp()
   const fileRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
 
   const exportJson = () => {
-    const json = serializeBackup(app.snapshot, app.clock)
-    const stamp = new Date(app.clock.now()).toISOString().slice(0, 10)
-    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `lifelog-${stamp}.json`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBackup(app.snapshot, app.clock)
     setMessage({ kind: 'ok', text: '내보냈습니다.' })
   }
 
@@ -58,11 +72,26 @@ function BackupSection() {
     try {
       const parsed = parseBackup(await file.text())
       const counts = `습관 ${parsed.data.definitions.length} · 기록 ${parsed.data.records.length} · 할 일 ${parsed.data.todos.length}`
-      if (!window.confirm(`현재 데이터를 전부 지우고 불러온 내용으로 바꿉니다.\n\n${counts}\n\n계속할까요?`)) {
+      if (!window.confirm(`${IMPORT_WARNING}\n\n${counts}\n\n계속할까요?`)) {
+        return
+      }
+      let saved: string
+      try {
+        saved = downloadBackup(app.snapshot, app.clock)
+      } catch (err) {
+        setMessage({
+          kind: 'error',
+          text: `지금 데이터를 자동 저장하지 못해 불러오기를 멈췄습니다: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        })
         return
       }
       await app.replaceAll(parsed.data)
-      setMessage({ kind: 'ok', text: `불러왔습니다. ${counts}` })
+      setMessage({
+        kind: 'ok',
+        text: `불러왔습니다. ${counts} · 바꾸기 전 데이터는 ${saved}로 내려받았습니다.`,
+      })
     } catch (err) {
       setMessage({
         kind: 'error',
@@ -81,6 +110,8 @@ function BackupSection() {
       <h2>백업</h2>
       <p className="hint">
         지금은 이 JSON 파일이 유일한 백업 수단입니다. 가끔 실제로 내보내 두세요.
+        불러오기는 로컬뿐 아니라 동기화된 원격 저장소까지 되돌리므로, 시작 전에 지금
+        데이터를 자동으로 한 부 내려받습니다.
       </p>
       <div className="btn-row">
         <button type="button" onClick={exportJson}>
