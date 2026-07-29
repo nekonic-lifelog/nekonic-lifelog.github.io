@@ -162,3 +162,51 @@
 .journal-item-text--sent {
   color: var(--muted);
 }
+
+.journal-item--flat {
+  cursor: default;
+}
+
+.journal-search {
+  display: flex;
+  min-width: 0;
+}
+
+.journal-search__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.journal-search__row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.journal-search__row button {
+  flex: 0 0 auto;
+}
+
+.journal-draft {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.journal-draft__head {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.journal-draft__preview {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.journal-draft .btn-row button {
+  min-height: 34px;
+  padding: 5px 12px;
+}

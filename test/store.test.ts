@@ -1,8 +1,9 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { IdbStore } from '../src/data/idb'
-import type { Snapshot } from '../src/data/store'
+import type { JournalDraft, Snapshot } from '../src/data/store'
 import { DEFAULT_SETTINGS } from '../src/lib/types'
+import { draftStoreOf } from '../src/state/drafts'
 import {
   dailyRecords,
   makeBook,
@@ -152,7 +153,7 @@ describe('프로젝트 · 독서 · 기록 테이블', () => {
     await store.put('journal', [makeJournal({ projectId: 'p-1' })])
     await store.put('books', [makeBook({ defId: 'd-1' })])
 
-    const db = await openRaw(2)
+    const db = await openRaw(3)
     try {
       const tx = db.transaction(['journal', 'books'], 'readonly')
       const byProject = await new Promise<unknown[]>((resolve, reject) => {
@@ -279,6 +280,13 @@ describe('replaceAll — 불러오기', () => {
     expect(await store.deviceId()).toBe(before)
   })
 
+  it('초안은 통째로 갈아끼워도 살아남는다', async () => {
+    const store = await freshStore()
+    await store.saveDraft(makeDraft())
+    await store.replaceAll(incoming())
+    expect(await store.loadDraft('new:diary')).not.toBeNull()
+  })
+
   it('중간에 실패하면 아무것도 반영하지 않는다 — 부분 적용이 없다', async () => {
     const store = await freshStore()
     const original = makeDef({ name: '지켜져야 할 것' })
@@ -295,5 +303,101 @@ describe('replaceAll — 불러오기', () => {
     expect(snapshot.definitions[0]!.name).toBe('지켜져야 할 것')
     expect(snapshot.records).toHaveLength(1)
     expect(snapshot.settings.dayBoundaryHour).toBe(4)
+  })
+})
+
+function makeDraft(overrides: Partial<JournalDraft> = {}): JournalDraft {
+  return {
+    key: 'new:diary',
+    kind: 'diary',
+    title: '',
+    body: '쓰다 만 본문',
+    projectId: '',
+    bookId: '',
+    attendees: '',
+    savedAt: '2026-03-12T20:00:00+09:00',
+    ...overrides,
+  }
+}
+
+describe('초안 보관소', () => {
+  it('없는 초안을 찾으면 null이다', async () => {
+    const store = await freshStore()
+    expect(await store.loadDraft('new:diary')).toBeNull()
+  })
+
+  it('쓴 초안을 그대로 읽는다', async () => {
+    const store = await freshStore()
+    const draft = makeDraft()
+    await store.saveDraft(draft)
+    expect(await store.loadDraft('new:diary')).toEqual(draft)
+  })
+
+  it('같은 key로 다시 쓰면 덮어쓴다', async () => {
+    const store = await freshStore()
+    await store.saveDraft(makeDraft())
+    await store.saveDraft(makeDraft({ body: '더 쓴 본문' }))
+    expect((await store.loadDraft('new:diary'))?.body).toBe('더 쓴 본문')
+  })
+
+  it('key가 다르면 따로 보관한다', async () => {
+    const store = await freshStore()
+    await store.saveDraft(makeDraft())
+    await store.saveDraft(makeDraft({ key: 'entry:j-1', body: '고치던 본문' }))
+    expect((await store.loadDraft('new:diary'))?.body).toBe('쓰다 만 본문')
+    expect((await store.loadDraft('entry:j-1'))?.body).toBe('고치던 본문')
+  })
+
+  it('지우면 사라진다 — tombstone이 아니다', async () => {
+    const store = await freshStore()
+    await store.saveDraft(makeDraft())
+    await store.clearDraft('new:diary')
+    expect(await store.loadDraft('new:diary')).toBeNull()
+  })
+
+  it('없는 초안을 지워도 터지지 않는다', async () => {
+    const store = await freshStore()
+    await expect(store.clearDraft('없는-키')).resolves.toBeUndefined()
+  })
+
+  it('초안은 journal 테이블에 들어가지 않는다', async () => {
+    const store = await freshStore()
+    await store.saveDraft(makeDraft())
+    expect((await store.loadAll()).journal).toEqual([])
+  })
+
+  it('초안은 동기화가 보는 스냅샷 어디에도 없다', async () => {
+    const store = await freshStore()
+    await store.saveDraft(makeDraft({ body: '동기화에-가면-안-되는-본문' }))
+    const snapshot = await store.loadAll()
+    expect(Object.keys(snapshot).sort()).toEqual([
+      'books',
+      'definitions',
+      'journal',
+      'projects',
+      'records',
+      'settings',
+      'todos',
+    ])
+    expect(JSON.stringify(snapshot)).not.toContain('동기화에-가면-안-되는-본문')
+  })
+
+  it('DB를 새 인스턴스로 다시 열어도 초안이 남는다', async () => {
+    const store = await freshStore()
+    await store.saveDraft(makeDraft())
+    expect((await track(new IdbStore()).loadDraft('new:diary'))?.body).toBe('쓰다 만 본문')
+  })
+
+  it('IdbStore는 초안 보관소를 그대로 쓴다', () => {
+    const store = new IdbStore()
+    expect(draftStoreOf(store)).toBe(store)
+  })
+
+  it('초안 보관소가 없는 저장소는 메모리로 대신한다', async () => {
+    const drafts = draftStoreOf({})
+    await drafts.saveDraft(makeDraft())
+    expect((await drafts.loadDraft('new:diary'))?.body).toBe('쓰다 만 본문')
+    await drafts.clearDraft('new:diary')
+    expect(await drafts.loadDraft('new:diary')).toBeNull()
   })
 })

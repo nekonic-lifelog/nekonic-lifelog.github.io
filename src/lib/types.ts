@@ -102,6 +102,7 @@ export interface Journal extends Base {
   title?: string | undefined
   body: string
   projectId?: string | undefined
+  bookId?: string | undefined
   attendees?: string[] | undefined
 }
 

@@ -9,13 +9,14 @@ import type { Snapshot } from '../src/data/store'
 import { fixedClock, mutableClock, type Clock } from '../src/lib/clock'
 import {
   groupByDay,
+  journalByBook,
   journalByProject,
   journalDayLabel,
   journalPreview,
   journalTimeline,
   liveJournal,
 } from '../src/lib/selectJournal'
-import { DEFAULT_SETTINGS, type Journal } from '../src/lib/types'
+import { DEFAULT_SETTINGS, SCHEMA_VERSION, type Journal } from '../src/lib/types'
 import { Records } from '../src/screens/Records'
 import { AppProvider, useApp, type AppApi } from '../src/state/app'
 import { useJournal, type JournalApi } from '../src/state/journal'
@@ -172,6 +173,56 @@ describe('기록 타임라인 셀렉터', () => {
     })
     const got = journalByProject(snap([first, elsewhere, second, dropped], [p, other]), 'p1')
     expect(got.map((e) => e.id)).toEqual(['m2', 'm1'])
+  })
+})
+
+describe('책에 붙는 기록', () => {
+  it('bookId가 없는 옛 일기도 그대로 읽고 거른다', () => {
+    const old = makeJournal({ id: 'old', body: '옛 일기' })
+    expect(old.bookId).toBeUndefined()
+    expect(liveJournal(snap([old])).map((e) => e.id)).toEqual(['old'])
+    expect(journalTimeline(snap([old])).map((e) => e.id)).toEqual(['old'])
+    expect(journalByBook(snap([old]), 'b1')).toEqual([])
+  })
+
+  it('bookId를 더해도 스키마 번호는 그대로다', () => {
+    const withBook = makeJournal({ bookId: 'b1' })
+    expect(withBook.v).toBe(SCHEMA_VERSION)
+    expect(SCHEMA_VERSION).toBe(1)
+  })
+
+  it('그 책에 붙은 것만 최신순으로 모은다', () => {
+    const first = makeJournal({ id: 'n1', kind: 'memo', bookId: 'b1', at: '2026-03-10T10:00:00+09:00' })
+    const second = makeJournal({ id: 'n2', kind: 'memo', bookId: 'b1', at: '2026-03-11T10:00:00+09:00' })
+    const other = makeJournal({ id: 'n3', kind: 'memo', bookId: 'b2', at: NOW })
+    const plain = makeJournal({ id: 'n4', kind: 'memo', at: NOW })
+    const got = journalByBook(snap([first, other, plain, second]), 'b1')
+    expect(got.map((e) => e.id)).toEqual(['n2', 'n1'])
+  })
+
+  it('삭제한 메모는 책 화면에도 오지 않는다', () => {
+    const gone = makeJournal({ id: 'n9', kind: 'memo', bookId: 'b1', deleted: true })
+    expect(journalByBook(snap([gone]), 'b1')).toEqual([])
+  })
+
+  it('bookId를 넣어 쓰고 고칠 수 있다', async () => {
+    await mount()
+    const entry = await run(() =>
+      api().addJournal({ kind: 'memo', body: '인용 한 줄', bookId: 'b1' }),
+    )
+    expect(entry.bookId).toBe('b1')
+
+    await run(() => api().editJournal(entry, { bookId: 'b2' }))
+    expect(state().journal.find((e) => e.id === entry.id)!.bookId).toBe('b2')
+
+    await run(() => api().editJournal(entry, { bookId: undefined }))
+    expect(state().journal.find((e) => e.id === entry.id)!.bookId).toBeUndefined()
+  })
+
+  it('bookId를 주지 않으면 남기지 않는다', async () => {
+    await mount()
+    const entry = await run(() => api().addJournal({ kind: 'memo', body: '보통 메모' }))
+    expect(entry.bookId).toBeUndefined()
   })
 })
 
@@ -399,8 +450,8 @@ describe('기록 화면', () => {
     await user.type(screen.getByLabelText('본문'), '비가 왔다')
     await user.click(screen.getByRole('button', { name: '저장' }))
 
-    expect(await screen.findByText('비가 왔다')).toBeTruthy()
-    expect(screen.getByText('오늘')).toBeTruthy()
+    expect(await screen.findByText('오늘')).toBeTruthy()
+    expect(screen.getByText('비가 왔다')).toBeTruthy()
   })
 
   it('일기 화면에는 제목과 프로젝트가 없고 회의록에는 있다', async () => {

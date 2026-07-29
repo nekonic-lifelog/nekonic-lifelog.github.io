@@ -50,6 +50,12 @@ export function journalByProject(snapshot: Snapshot, projectId: string): Journal
     .sort(newestFirst)
 }
 
+export function journalByBook(snapshot: Snapshot, bookId: string): Journal[] {
+  return liveJournal(snapshot)
+    .filter((e) => e.bookId === bookId)
+    .sort(newestFirst)
+}
+
 export function journalPreview(entry: Journal, max: number = PREVIEW_MAX): string {
   const line = entry.body
     .split('\n')

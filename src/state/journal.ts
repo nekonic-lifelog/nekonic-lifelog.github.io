@@ -9,11 +9,12 @@ export interface NewJournal {
   title?: string | undefined
   body: string
   projectId?: string | undefined
+  bookId?: string | undefined
   attendees?: string[] | undefined
 }
 
 export type JournalPatch = Partial<
-  Pick<Journal, 'at' | 'title' | 'body' | 'projectId' | 'attendees'>
+  Pick<Journal, 'at' | 'title' | 'body' | 'projectId' | 'bookId' | 'attendees'>
 >
 
 export interface JournalApi {
@@ -47,6 +48,7 @@ export function useJournal(): JournalApi {
           title: cleanTitle(input.title),
           body: input.body,
           projectId: input.projectId,
+          bookId: input.bookId,
           attendees: cleanAttendees(input.attendees),
         }
         await write('journal', [entry])

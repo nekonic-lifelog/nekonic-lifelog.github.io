@@ -2,6 +2,7 @@ import type {
   Book,
   Definition,
   Journal,
+  JournalKind,
   LogRecord,
   Project,
   Settings,
@@ -33,6 +34,23 @@ export interface Snapshot {
   books: Book[]
   journal: Journal[]
   settings: Settings
+}
+
+export interface JournalDraft {
+  key: string
+  kind: JournalKind
+  title: string
+  body: string
+  projectId: string
+  bookId: string
+  attendees: string
+  savedAt: string
+}
+
+export interface DraftStore {
+  loadDraft(key: string): Promise<JournalDraft | null>
+  saveDraft(draft: JournalDraft): Promise<void>
+  clearDraft(key: string): Promise<void>
 }
 
 export interface Store {
