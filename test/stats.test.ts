@@ -10,10 +10,12 @@ import {
   habitStats,
   journalStats,
   longestStreakIn,
+  measureStats,
   rangeFor,
   readingStats,
   summaryFor,
   type HabitStat,
+  type MeasureStat,
   type Range,
 } from '../src/lib/stats'
 import { DEFAULT_SETTINGS } from '../src/lib/types'
@@ -622,6 +624,262 @@ describe('summaryFor', () => {
       totalTargetDays: 0,
       totalAchievedDays: 0,
     })
+  })
+})
+
+describe('기록 지표 — 판정에서 빠진다', () => {
+  const range = rangeFor('week', TODAY)
+  const caffeine = () =>
+    makeQuantityDef([], { name: '카페인', unit: 'mg', scored: false, order: 1 })
+
+  it('habitStats 결과에 나타나지 않는다', () => {
+    const habit = makeDef({ name: '아침 약', order: 0 })
+    const measure = caffeine()
+    const snapshot = snap({
+      definitions: [habit, measure],
+      records: [
+        ...dailyRecords(habit.id, ['2026-03-11', '2026-03-12']),
+        ...dailyRecords(measure.id, ['2026-03-11', '2026-03-12'], 150),
+      ],
+    })
+
+    expect(
+      habitStats(snapshot, range, opts(NOW)).map((s) => s.definition.name),
+    ).toEqual(['아침 약'])
+  })
+
+  it('달성률·최장 스트릭에 섞이지 않는다', () => {
+    const habit = makeDef({ name: '아침 약', order: 0 })
+    const measure = caffeine()
+    const records = [
+      ...dailyRecords(habit.id, ['2026-03-11', '2026-03-12']),
+      ...dailyRecords(measure.id, ['2026-03-09', '2026-03-10'], 150),
+    ]
+
+    const alone = summaryFor(
+      habitStats(snap({ definitions: [habit], records }), range, opts(NOW)),
+    )
+    const together = summaryFor(
+      habitStats(snap({ definitions: [habit, measure], records }), range, opts(NOW)),
+    )
+
+    expect(together).toEqual(alone)
+    expect(together.totalTargetDays).toBe(4)
+  })
+
+  it('기록 지표만 있으면 판정할 것이 하나도 없다', () => {
+    const measure = caffeine()
+    const snapshot = snap({
+      definitions: [measure],
+      records: dailyRecords(measure.id, ['2026-03-11', '2026-03-12'], 150),
+    })
+
+    expect(habitStats(snapshot, range, opts(NOW))).toEqual([])
+    expect(summaryFor(habitStats(snapshot, range, opts(NOW))).totalTargetDays).toBe(0)
+  })
+
+  it('scored를 붙이지 않은 지표는 그대로 판정 대상이다', () => {
+    const def = makeQuantityDef([], { name: '카페인', unit: 'mg' })
+    const snapshot = snap({
+      definitions: [def],
+      records: dailyRecords(def.id, ['2026-03-11', '2026-03-12'], 150),
+    })
+
+    expect(habitStats(snapshot, range, opts(NOW)).map((s) => s.definition.name)).toEqual([
+      '카페인',
+    ])
+  })
+})
+
+describe('measureStats — 판정하지 않는 지표의 값', () => {
+  const range = rangeFor('week', TODAY)
+  const only1 = (stats: MeasureStat[]): MeasureStat => {
+    expect(stats).toHaveLength(1)
+    return stats[0]!
+  }
+  const measureDef = (overrides = {}) =>
+    makeQuantityDef([], { name: '카페인', unit: 'mg', scored: false, ...overrides })
+
+  it('판정 지표는 빼고 기록 지표만 돌려준다', () => {
+    const habit = makeDef({ name: '아침 약', order: 0 })
+    const measure = measureDef({ order: 1 })
+    const snapshot = snap({ definitions: [habit, measure] })
+
+    expect(measureStats(snapshot, range, opts(NOW)).map((s) => s.definition.name)).toEqual([
+      '카페인',
+    ])
+  })
+
+  it('기간의 날짜를 오늘까지 오름차순으로 전부 담는다', () => {
+    const measure = measureDef()
+    const stat = only1(measureStats(snap({ definitions: [measure] }), range, opts(NOW)))
+
+    expect(stat.days.map((d) => d.day)).toEqual([
+      '2026-03-09',
+      '2026-03-10',
+      '2026-03-11',
+      '2026-03-12',
+    ])
+    expect(stat.days.every((d) => d.count === 0 && d.value === 0)).toBe(true)
+    expect(stat.recordedDays).toBe(0)
+    expect(stat.min).toBeNull()
+    expect(stat.max).toBeNull()
+    expect(stat.lastAt).toBeNull()
+    expect(stat.lastValue).toBeNull()
+    expect(stat.average).toBe(0)
+  })
+
+  it('하루에 여러 건이면 더한 값이 그날의 값이다', () => {
+    const measure = measureDef()
+    const snapshot = snap({
+      definitions: [measure],
+      records: [
+        makeRecord(measure.id, '2026-03-11T09:00:00+09:00', 150),
+        makeRecord(measure.id, '2026-03-11T15:00:00+09:00', 90),
+        makeRecord(measure.id, '2026-03-12T10:00:00+09:00', 200),
+      ],
+    })
+    const stat = only1(measureStats(snapshot, range, opts(NOW)))
+    const byDay = new Map(stat.days.map((d) => [d.day, d]))
+
+    expect(stat.aggregate).toBe('sum')
+    expect(byDay.get('2026-03-11')?.value).toBe(240)
+    expect(byDay.get('2026-03-11')?.count).toBe(2)
+    expect(byDay.get('2026-03-12')?.value).toBe(200)
+    expect(stat.total).toBe(440)
+    expect(stat.records).toBe(3)
+    expect(stat.recordedDays).toBe(2)
+    expect(stat.average).toBe(220)
+    expect(stat.min).toBe(200)
+    expect(stat.max).toBe(240)
+  })
+
+  it('마지막 값만 취하는 지표는 날짜별 값도 마지막 값이다', () => {
+    const measure = measureDef({ name: '체중', unit: 'kg', aggregate: 'last' })
+    const snapshot = snap({
+      definitions: [measure],
+      records: [
+        makeRecord(measure.id, '2026-03-12T20:00:00+09:00', 61),
+        makeRecord(measure.id, '2026-03-12T08:00:00+09:00', 62),
+      ],
+    })
+    const stat = only1(measureStats(snapshot, range, opts(NOW)))
+
+    expect(stat.aggregate).toBe('last')
+    expect(stat.days.find((d) => d.day === '2026-03-12')?.value).toBe(61)
+    expect(stat.total).toBe(61)
+    expect(stat.average).toBe(61)
+  })
+
+  it('lastAt은 기간 안 가장 늦은 기록의 시각이다 — 역순으로 넣어도 같다', () => {
+    const measure = measureDef()
+    const snapshot = snap({
+      definitions: [measure],
+      records: [
+        makeRecord(measure.id, '2026-03-12T18:40:00+09:00', 60),
+        makeRecord(measure.id, '2026-03-12T09:00:00+09:00', 150),
+        makeRecord(measure.id, '2026-03-11T22:00:00+09:00', 90),
+      ],
+    })
+    const stat = only1(measureStats(snapshot, range, opts(NOW)))
+
+    expect(stat.lastAt).toBe('2026-03-12T18:40:00+09:00')
+    expect(stat.lastValue).toBe(60)
+    expect(stat.days.find((d) => d.day === '2026-03-12')?.firstAt).toBe(
+      '2026-03-12T09:00:00+09:00',
+    )
+  })
+
+  it('새벽 기록은 전날의 마지막이다', () => {
+    const measure = measureDef()
+    const snapshot = snap({
+      definitions: [measure],
+      records: [
+        makeRecord(measure.id, '2026-03-11T22:00:00+09:00', 60),
+        makeRecord(measure.id, '2026-03-12T01:30:00+09:00', 30),
+      ],
+    })
+    const stat = only1(measureStats(snapshot, range, opts(NOW)))
+    const byDay = new Map(stat.days.map((d) => [d.day, d]))
+
+    expect(byDay.get('2026-03-11')?.value).toBe(90)
+    expect(byDay.get('2026-03-11')?.lastAt).toBe('2026-03-12T01:30:00+09:00')
+    expect(byDay.get('2026-03-12')?.count).toBe(0)
+    expect(stat.lastAt).toBe('2026-03-12T01:30:00+09:00')
+  })
+
+  it('시간대별 분포를 낸다 — 스물네 칸이다', () => {
+    const measure = measureDef()
+    const snapshot = snap({
+      definitions: [measure],
+      records: [
+        makeRecord(measure.id, '2026-03-11T09:00:00+09:00', 150),
+        makeRecord(measure.id, '2026-03-12T09:30:00+09:00', 90),
+        makeRecord(measure.id, '2026-03-12T22:00:00+09:00', 60),
+      ],
+    })
+    const stat = only1(measureStats(snapshot, range, opts(NOW)))
+
+    expect(stat.byHour).toHaveLength(24)
+    expect(stat.byHour[9]).toBe(2)
+    expect(stat.byHour[22]).toBe(1)
+    expect(stat.byHour.reduce((a, b) => a + b, 0)).toBe(3)
+  })
+
+  it('삭제된 기록은 빠진다', () => {
+    const measure = measureDef()
+    const snapshot = snap({
+      definitions: [measure],
+      records: [
+        makeRecord(measure.id, '2026-03-12T09:00:00+09:00', 150),
+        { ...makeRecord(measure.id, '2026-03-12T23:00:00+09:00', 999), deleted: true },
+      ],
+    })
+    const stat = only1(measureStats(snapshot, range, opts(NOW)))
+
+    expect(stat.total).toBe(150)
+    expect(stat.records).toBe(1)
+    expect(stat.lastAt).toBe('2026-03-12T09:00:00+09:00')
+    expect(stat.lastValue).toBe(150)
+  })
+
+  it('기간 밖의 기록은 들어오지 않는다', () => {
+    const measure = measureDef()
+    const snapshot = snap({
+      definitions: [measure],
+      records: [
+        makeRecord(measure.id, '2026-03-05T09:00:00+09:00', 999),
+        makeRecord(measure.id, '2026-03-11T09:00:00+09:00', 150),
+      ],
+    })
+    const stat = only1(measureStats(snapshot, range, opts(NOW)))
+
+    expect(stat.total).toBe(150)
+    expect(stat.records).toBe(1)
+  })
+
+  it('삭제·숨김 정의는 나오지 않는다', () => {
+    const snapshot = snap({
+      definitions: [
+        measureDef({ deleted: true }),
+        measureDef({ hidden: true }),
+      ],
+    })
+
+    expect(measureStats(snapshot, range, opts(NOW))).toEqual([])
+  })
+
+  it('보관한 지표는 그 기간에 기록이 있을 때만 남는다', () => {
+    const withRecord = measureDef({ archived: true, name: '카페인', order: 0 })
+    const empty = measureDef({ archived: true, name: '옛 지표', order: 1 })
+    const snapshot = snap({
+      definitions: [withRecord, empty],
+      records: dailyRecords(withRecord.id, ['2026-03-11'], 150),
+    })
+
+    expect(measureStats(snapshot, range, opts(NOW)).map((s) => s.definition.name)).toEqual([
+      '카페인',
+    ])
   })
 })
 

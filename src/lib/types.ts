@@ -19,6 +19,13 @@ export interface TargetPoint {
   target: number
 }
 
+export type Aggregate = 'sum' | 'last'
+
+export interface Scale {
+  min: number
+  max: number
+}
+
 export interface Definition extends Base {
   kind: DefinitionKind
   name: string
@@ -28,6 +35,9 @@ export interface Definition extends Base {
   order: number
   hidden: boolean
   archived: boolean
+  scored?: boolean | undefined
+  aggregate?: Aggregate | undefined
+  scale?: Scale | undefined
 }
 
 export interface LogRecord extends Base {

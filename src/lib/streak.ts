@@ -1,6 +1,6 @@
 import type { Clock } from './clock'
 import { addDays, lastNDays, logicalDay, todayKey, weekdayOf, type DayKey } from './day'
-import type { Definition, LogRecord, TargetPoint } from './types'
+import type { Aggregate, Definition, LogRecord, TargetPoint } from './types'
 
 export interface StreakOptions {
   boundaryHour: number
@@ -14,11 +14,27 @@ export interface DayStatus {
   count: number
   target: number | null
   achieved: boolean
+  scored: boolean
 }
 
-interface DayTally {
+export interface DayTally {
   sum: number
   count: number
+  lastValue?: number
+  lastAt?: string
+  firstAt?: string
+}
+
+export function isScored(def: Definition): boolean {
+  return def.scored !== false
+}
+
+export function aggregateOf(def: Definition): Aggregate {
+  return def.aggregate ?? 'sum'
+}
+
+export function tallyValue(def: Definition, tally: DayTally): number {
+  return aggregateOf(def) === 'last' ? (tally.lastValue ?? 0) : tally.sum
 }
 
 export function progressPercent(status: DayStatus): number {
@@ -43,14 +59,38 @@ export function dailyTotals(
   boundaryHour: number,
 ): Map<DayKey, DayTally> {
   const totals = new Map<DayKey, DayTally>()
+  const edges = new Map<DayKey, { first: number; last: number; lastId: string }>()
+
   for (const r of records) {
     if (r.deleted || r.defId !== def.id) continue
     const day = logicalDay(r.at, boundaryHour)
     const tally = totals.get(day) ?? { sum: 0, count: 0 }
     tally.sum += r.value
     tally.count += 1
+
+    const at = new Date(r.at).getTime()
+    const edge = edges.get(day)
+    if (edge === undefined) {
+      edges.set(day, { first: at, last: at, lastId: r.id })
+      tally.firstAt = r.at
+      tally.lastAt = r.at
+      tally.lastValue = r.value
+    } else {
+      if (at > edge.last || (at === edge.last && r.id > edge.lastId)) {
+        edge.last = at
+        edge.lastId = r.id
+        tally.lastAt = r.at
+        tally.lastValue = r.value
+      }
+      if (at < edge.first) {
+        edge.first = at
+        tally.firstAt = r.at
+      }
+    }
+
     totals.set(day, tally)
   }
+
   return totals
 }
 
@@ -102,17 +142,22 @@ function statusOn(
   totals: Map<DayKey, DayTally>,
   boundaryHour: number,
 ): DayStatus {
-  const { sum, count } = totals.get(day) ?? { sum: 0, count: 0 }
+  const tally = totals.get(day) ?? { sum: 0, count: 0 }
+  const { count } = tally
+  const value = tallyValue(def, tally)
   const target = effectiveTarget(def, day, boundaryHour)
-  const achieved =
-    def.kind === 'check' ? count >= 1 : target === null ? sum > 0 : sum >= target
+  const scored = isScored(def)
+  const hit =
+    def.kind === 'check' ? count >= 1 : target === null ? value > 0 : value >= target
+  const achieved = scored && hit
   return {
     day,
     isTargetDay: isTargetDay(def, day),
-    total: def.kind === 'check' ? count : sum,
+    total: def.kind === 'check' ? count : value,
     count,
     target,
     achieved,
+    scored,
   }
 }
 
@@ -131,6 +176,8 @@ function walkStreak(
   today: DayKey,
   boundaryHour: number,
 ): number {
+  if (!isScored(def)) return 0
+
   let floor = logicalDay(def.createdAt, boundaryHour)
   for (const day of totals.keys()) if (day < floor) floor = day
 

@@ -3,6 +3,7 @@ import { fixedClock } from '../src/lib/clock'
 import { logicalDay } from '../src/lib/day'
 import {
   computeStreak,
+  dailyTotals,
   dayStatus,
   effectiveTarget,
   habitView,
@@ -296,6 +297,7 @@ describe('진행률 표시', () => {
     count: total === 0 ? 0 : 1,
     target,
     achieved: target === null ? total > 0 : total >= target,
+    scored: true,
   })
 
   it('목표 대비 비율을 돌려준다', () => {
@@ -348,5 +350,298 @@ describe('habitView — 오늘 화면이 쓰는 묶음', () => {
     const view = habitView(def, [], opts('2026-03-12T20:00:00+09:00'))
     expect(view.recent.find((d) => d.day === '2026-03-09')?.target).toBe(1000)
     expect(view.recent.find((d) => d.day === '2026-03-12')?.target).toBe(2000)
+  })
+})
+
+const NOW = '2026-03-12T20:00:00+09:00'
+
+describe('하루 집계 — 처음과 마지막 기록', () => {
+  const def = () => makeQuantityDef([], { name: '카페인', unit: 'mg' })
+
+  it('lastValue와 lastAt은 그날 가장 늦은 at의 기록이다', () => {
+    const d = def()
+    const tally = dailyTotals(
+      d,
+      [
+        makeRecord(d.id, '2026-03-10T09:00:00+09:00', 100),
+        makeRecord(d.id, '2026-03-10T21:00:00+09:00', 30),
+        makeRecord(d.id, '2026-03-10T14:00:00+09:00', 50),
+      ],
+      BOUNDARY,
+    ).get('2026-03-10')
+
+    expect(tally?.lastValue).toBe(30)
+    expect(tally?.lastAt).toBe('2026-03-10T21:00:00+09:00')
+    expect(tally?.firstAt).toBe('2026-03-10T09:00:00+09:00')
+  })
+
+  it('시간 역순으로 넣어도 같다 — 삽입 순서가 아니라 at으로 정한다', () => {
+    const d = def()
+    const tally = dailyTotals(
+      d,
+      [
+        makeRecord(d.id, '2026-03-10T21:00:00+09:00', 30),
+        makeRecord(d.id, '2026-03-10T14:00:00+09:00', 50),
+        makeRecord(d.id, '2026-03-10T09:00:00+09:00', 100),
+      ],
+      BOUNDARY,
+    ).get('2026-03-10')
+
+    expect(tally?.lastValue).toBe(30)
+    expect(tally?.lastAt).toBe('2026-03-10T21:00:00+09:00')
+    expect(tally?.firstAt).toBe('2026-03-10T09:00:00+09:00')
+  })
+
+  it('새벽 기록이 그날의 마지막이다 — 하루 경계를 넘겨도 옳다', () => {
+    const d = def()
+    const tally = dailyTotals(
+      d,
+      [
+        makeRecord(d.id, '2026-03-10T22:00:00+09:00', 10),
+        makeRecord(d.id, '2026-03-11T01:30:00+09:00', 5),
+      ],
+      BOUNDARY,
+    ).get('2026-03-10')
+
+    expect(tally?.count).toBe(2)
+    expect(tally?.lastAt).toBe('2026-03-11T01:30:00+09:00')
+    expect(tally?.lastValue).toBe(5)
+    expect(tally?.firstAt).toBe('2026-03-10T22:00:00+09:00')
+  })
+
+  it('삭제된 기록은 lastValue와 lastAt에 영향을 주지 않는다', () => {
+    const d = def()
+    const tally = dailyTotals(
+      d,
+      [
+        makeRecord(d.id, '2026-03-10T09:00:00+09:00', 100),
+        { ...makeRecord(d.id, '2026-03-10T23:00:00+09:00', 999), deleted: true },
+      ],
+      BOUNDARY,
+    ).get('2026-03-10')
+
+    expect(tally?.lastValue).toBe(100)
+    expect(tally?.lastAt).toBe('2026-03-10T09:00:00+09:00')
+    expect(tally?.sum).toBe(100)
+    expect(tally?.count).toBe(1)
+  })
+
+  it('다른 정의의 기록은 섞이지 않는다', () => {
+    const d = def()
+    const other = makeQuantityDef([], { name: '물' })
+    const tally = dailyTotals(
+      d,
+      [
+        makeRecord(d.id, '2026-03-10T09:00:00+09:00', 100),
+        makeRecord(other.id, '2026-03-10T23:00:00+09:00', 500),
+      ],
+      BOUNDARY,
+    ).get('2026-03-10')
+
+    expect(tally?.lastValue).toBe(100)
+    expect(tally?.count).toBe(1)
+  })
+
+  it('기록이 없는 날은 집계 자체가 없다', () => {
+    expect(dailyTotals(def(), [], BOUNDARY).get('2026-03-10')).toBeUndefined()
+  })
+
+  it('sum과 count는 그대로다', () => {
+    const d = def()
+    const tally = dailyTotals(
+      d,
+      [
+        makeRecord(d.id, '2026-03-10T09:00:00+09:00', 100),
+        makeRecord(d.id, '2026-03-10T14:00:00+09:00', 50),
+      ],
+      BOUNDARY,
+    ).get('2026-03-10')
+
+    expect(tally?.sum).toBe(150)
+    expect(tally?.count).toBe(2)
+  })
+})
+
+describe('집계 방식 — 마지막 값만 취하는 지표', () => {
+  const twice = (defId: string) => [
+    makeRecord(defId, '2026-03-12T08:00:00+09:00', 7.5),
+    makeRecord(defId, '2026-03-12T20:00:00+09:00', 7.5),
+  ]
+
+  it('같은 날 두 번 기록해도 마지막 값만 취한다', () => {
+    const def = makeQuantityDef([], { name: '체중', unit: 'kg', aggregate: 'last' })
+    expect(dayStatus(def, twice(def.id), '2026-03-12', opts(NOW)).total).toBe(7.5)
+  })
+
+  it('집계 방식이 없으면 지금처럼 더한다', () => {
+    const def = makeQuantityDef([], { name: '체중', unit: 'kg' })
+    expect(dayStatus(def, twice(def.id), '2026-03-12', opts(NOW)).total).toBe(15)
+  })
+
+  it('마지막 값은 at 기준이다 — 역순으로 넣어도 같다', () => {
+    const def = makeQuantityDef([], { name: '컨디션', aggregate: 'last' })
+    const records = [
+      makeRecord(def.id, '2026-03-12T20:00:00+09:00', 2),
+      makeRecord(def.id, '2026-03-12T08:00:00+09:00', 9),
+    ]
+    expect(dayStatus(def, records, '2026-03-12', opts(NOW)).total).toBe(2)
+  })
+
+  it('목표 판정도 합계가 아니라 마지막 값으로 한다', () => {
+    const history = [{ from: '2026-03-01T00:00:00+09:00', target: 10 }]
+    const records = (defId: string) => [
+      makeRecord(defId, '2026-03-12T08:00:00+09:00', 8),
+      makeRecord(defId, '2026-03-12T20:00:00+09:00', 6),
+    ]
+
+    const last = makeQuantityDef(history, { aggregate: 'last' })
+    const sum = makeQuantityDef(history)
+
+    expect(dayStatus(last, records(last.id), '2026-03-12', opts(NOW)).achieved).toBe(false)
+    expect(dayStatus(sum, records(sum.id), '2026-03-12', opts(NOW)).achieved).toBe(true)
+  })
+
+  it('목표가 없으면 마지막 값이 0보다 커야 달성이다', () => {
+    const def = makeQuantityDef([], { aggregate: 'last' })
+    const records = [
+      makeRecord(def.id, '2026-03-12T08:00:00+09:00', 5),
+      makeRecord(def.id, '2026-03-12T20:00:00+09:00', 0),
+    ]
+    expect(dayStatus(def, records, '2026-03-12', opts(NOW)).achieved).toBe(false)
+  })
+
+  it('기록이 없는 날은 마지막 값도 0이다', () => {
+    const def = makeQuantityDef([], { aggregate: 'last' })
+    const status = dayStatus(def, [], '2026-03-12', opts(NOW))
+    expect(status.total).toBe(0)
+    expect(status.count).toBe(0)
+    expect(status.achieved).toBe(false)
+  })
+
+  it('스트릭도 마지막 값으로 판정한다 — 오늘이 합계로만 달성이면 오늘은 안 센다', () => {
+    const history = [{ from: '2026-03-01T00:00:00+09:00', target: 10 }]
+    const records = (defId: string) => [
+      makeRecord(defId, '2026-03-11T08:00:00+09:00', 12),
+      makeRecord(defId, '2026-03-12T08:00:00+09:00', 8),
+      makeRecord(defId, '2026-03-12T20:00:00+09:00', 6),
+    ]
+
+    const last = makeQuantityDef(history, { aggregate: 'last' })
+    const sum = makeQuantityDef(history)
+
+    expect(computeStreak(last, records(last.id), opts(NOW))).toBe(1)
+    expect(computeStreak(sum, records(sum.id), opts(NOW))).toBe(2)
+  })
+})
+
+describe('판정하지 않는 지표 — 기록만 남긴다', () => {
+  const caffeine = () =>
+    makeQuantityDef([], { name: '카페인', unit: 'mg', scored: false })
+
+  it('스트릭이 서지 않는다', () => {
+    const def = caffeine()
+    const records = dailyRecords(def.id, ['2026-03-10', '2026-03-11', '2026-03-12'], 100)
+    expect(computeStreak(def, records, opts(NOW))).toBe(0)
+  })
+
+  it('같은 기록이라도 판정 지표라면 스트릭이 선다', () => {
+    const def = makeQuantityDef([], { name: '카페인', unit: 'mg' })
+    const records = dailyRecords(def.id, ['2026-03-10', '2026-03-11', '2026-03-12'], 100)
+    expect(computeStreak(def, records, opts(NOW))).toBe(3)
+  })
+
+  it('달성 실패와 구분된다 — 판정 대상이 아님을 알려준다', () => {
+    const def = caffeine()
+    const records = dailyRecords(def.id, ['2026-03-12'], 100)
+    const status = dayStatus(def, records, '2026-03-12', opts(NOW))
+
+    expect(status.scored).toBe(false)
+    expect(status.achieved).toBe(false)
+    expect(status.total).toBe(100)
+    expect(status.count).toBe(1)
+  })
+
+  it('판정 지표의 하루는 scored가 true다', () => {
+    const def = makeQuantityDef([], { name: '물', unit: 'ml' })
+    expect(dayStatus(def, [], '2026-03-12', opts(NOW)).scored).toBe(true)
+  })
+
+  it('habitView도 스트릭 없이 기록만 들고 온다', () => {
+    const def = caffeine()
+    const records = dailyRecords(def.id, ['2026-03-10', '2026-03-11', '2026-03-12'], 100)
+    const view = habitView(def, records, opts(NOW))
+
+    expect(view.streak).toBe(0)
+    expect(view.today.total).toBe(100)
+    expect(view.today.scored).toBe(false)
+  })
+
+  it('체크형이어도 판정하지 않으면 스트릭이 없다', () => {
+    const def = makeDef({ scored: false })
+    const records = dailyRecords(def.id, ['2026-03-11', '2026-03-12'])
+    expect(computeStreak(def, records, opts(NOW))).toBe(0)
+  })
+})
+
+describe('세 필드가 없는 기존 지표 — 현행과 완전히 같다', () => {
+  const history = [{ from: '2026-03-01T00:00:00+09:00', target: 2000 }]
+
+  it('scored·aggregate·scale이 아예 없다', () => {
+    const def = makeQuantityDef(history)
+    expect('scored' in def).toBe(false)
+    expect('aggregate' in def).toBe(false)
+    expect('scale' in def).toBe(false)
+  })
+
+  it('수량형은 합계로 목표를 판정한다', () => {
+    const def = makeQuantityDef(history)
+    const records = [
+      makeRecord(def.id, '2026-03-12T09:00:00+09:00', 1200),
+      makeRecord(def.id, '2026-03-12T18:00:00+09:00', 900),
+    ]
+    const status = dayStatus(def, records, '2026-03-12', opts(NOW))
+
+    expect(status.total).toBe(2100)
+    expect(status.achieved).toBe(true)
+    expect(status.scored).toBe(true)
+  })
+
+  it('목표가 없으면 한 건이라도 있으면 달성이다', () => {
+    const def = makeQuantityDef([])
+    const records = [makeRecord(def.id, '2026-03-12T09:00:00+09:00', 1)]
+    expect(dayStatus(def, records, '2026-03-12', opts(NOW)).achieved).toBe(true)
+  })
+
+  it('체크형은 한 건이면 달성이다', () => {
+    const def = makeDef()
+    const records = [makeRecord(def.id, '2026-03-12T09:00:00+09:00', 0)]
+    expect(dayStatus(def, records, '2026-03-12', opts(NOW)).achieved).toBe(true)
+  })
+
+  it('scored: true와 aggregate: sum을 명시해도 결과가 같다', () => {
+    const bare = makeQuantityDef(history)
+    const spelled = makeQuantityDef(history, {
+      id: bare.id,
+      scored: true,
+      aggregate: 'sum',
+      scale: { min: 0, max: 3000 },
+    })
+    const records = [
+      makeRecord(bare.id, '2026-03-11T09:00:00+09:00', 2100),
+      makeRecord(bare.id, '2026-03-12T09:00:00+09:00', 2100),
+    ]
+
+    expect(dayStatus(spelled, records, '2026-03-12', opts(NOW))).toEqual(
+      dayStatus(bare, records, '2026-03-12', opts(NOW)),
+    )
+    expect(computeStreak(spelled, records, opts(NOW))).toBe(
+      computeStreak(bare, records, opts(NOW)),
+    )
+  })
+
+  it('scale만 붙여도 판정은 달라지지 않는다', () => {
+    const def = makeQuantityDef(history, { scale: { min: 0, max: 10 } })
+    const records = [makeRecord(def.id, '2026-03-12T09:00:00+09:00', 2000)]
+    expect(dayStatus(def, records, '2026-03-12', opts(NOW)).achieved).toBe(true)
   })
 })

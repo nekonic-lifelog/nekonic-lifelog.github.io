@@ -2,7 +2,14 @@ import { useMemo } from 'react'
 import type { Clock } from '../lib/clock'
 import { dayKeyToDate, logicalDay, type DayKey } from '../lib/day'
 import { withNewTarget } from '../lib/streak'
-import type { Definition, DefinitionKind, LogRecord } from '../lib/types'
+import type {
+  Aggregate,
+  Base,
+  Definition,
+  DefinitionKind,
+  LogRecord,
+  Scale,
+} from '../lib/types'
 import { createBase, softDelete, touch } from '../data/mutations'
 import { useApp } from './app'
 
@@ -12,6 +19,33 @@ export interface NewDefinition {
   unit?: string | undefined
   target?: number | undefined
   targetDays?: number[] | undefined
+  scored?: boolean | undefined
+  aggregate?: Aggregate | undefined
+  scale?: Scale | undefined
+}
+
+export function definitionFrom(
+  input: NewDefinition,
+  base: Base,
+  order: number,
+): Definition {
+  return {
+    ...base,
+    kind: input.kind,
+    name: input.name.trim(),
+    unit: input.unit?.trim() || undefined,
+    targetDays: input.targetDays?.length ? input.targetDays : undefined,
+    targetHistory:
+      input.kind === 'quantity' && input.target !== undefined
+        ? [{ from: base.createdAt, target: input.target }]
+        : [],
+    order,
+    hidden: false,
+    archived: false,
+    scored: input.scored === false ? false : undefined,
+    aggregate: input.aggregate === 'last' ? 'last' : undefined,
+    scale: input.scale,
+  }
 }
 
 export type DefinitionPatch = Partial<
@@ -54,22 +88,9 @@ export function useHabits(): HabitsApi {
           (max, d) => (d.deleted ? max : Math.max(max, d.order)),
           -1,
         )
-        const base = createBase(ctx)
-        const def: Definition = {
-          ...base,
-          kind: input.kind,
-          name: input.name.trim(),
-          unit: input.unit?.trim() || undefined,
-          targetDays: input.targetDays?.length ? input.targetDays : undefined,
-          targetHistory:
-            input.kind === 'quantity' && input.target !== undefined
-              ? [{ from: base.createdAt, target: input.target }]
-              : [],
-          order: maxOrder + 1,
-          hidden: false,
-          archived: false,
-        }
-        await write('definitions', [def])
+        await write('definitions', [
+          definitionFrom(input, createBase(ctx), maxOrder + 1),
+        ])
       },
 
       async editDefinition(def, patch) {

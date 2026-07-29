@@ -9,8 +9,17 @@ import {
   todayKey,
   type DayKey,
 } from './day'
-import { computeStreak, dayStatus, isTargetDay, type StreakOptions } from './streak'
-import type { Book, Definition, JournalKind, LogRecord } from './types'
+import {
+  aggregateOf,
+  computeStreak,
+  dailyTotals,
+  dayStatus,
+  isScored,
+  isTargetDay,
+  tallyValue,
+  type StreakOptions,
+} from './streak'
+import type { Aggregate, Book, Definition, JournalKind, LogRecord } from './types'
 
 export type Period = 'week' | 'month' | 'year'
 
@@ -125,6 +134,7 @@ export function habitStats(
   const stats: HabitStat[] = []
 
   for (const definition of countedDefinitions(snapshot)) {
+    if (!isScored(definition)) continue
     const own = recordsOf(definition, snapshot.records)
     const floor = firstCountedDay(definition, own, opts.boundaryHour)
     let targetDays = 0
@@ -146,6 +156,107 @@ export function habitStats(
       percent: percentOf(achievedDays, targetDays),
       longestStreak: longestStreakIn(definition, own, range, opts.boundaryHour),
       currentStreak: computeStreak(definition, own, opts),
+    })
+  }
+
+  return stats
+}
+
+export interface MeasurePoint {
+  day: DayKey
+  value: number
+  count: number
+  firstAt: string | null
+  lastAt: string | null
+}
+
+export interface MeasureStat {
+  definition: Definition
+  aggregate: Aggregate
+  days: MeasurePoint[]
+  records: number
+  recordedDays: number
+  total: number
+  average: number
+  min: number | null
+  max: number | null
+  lastValue: number | null
+  lastAt: string | null
+  byHour: number[]
+}
+
+export function measureStats(
+  snapshot: Snapshot,
+  range: Range,
+  opts: StreakOptions,
+): MeasureStat[] {
+  const { boundaryHour } = opts
+  const today = todayKey(opts.clock, boundaryHour)
+  const span = daysIn(range).filter((day) => day <= today)
+  const stats: MeasureStat[] = []
+
+  for (const definition of countedDefinitions(snapshot)) {
+    if (isScored(definition)) continue
+
+    const own = recordsOf(definition, snapshot.records)
+    const totals = dailyTotals(definition, own, boundaryHour)
+    const byHour = new Array<number>(24).fill(0)
+    const days: MeasurePoint[] = []
+    let records = 0
+    let recordedDays = 0
+    let total = 0
+    let min: number | null = null
+    let max: number | null = null
+    let lastValue: number | null = null
+    let lastAt: string | null = null
+
+    for (const day of span) {
+      const tally = totals.get(day)
+      if (tally === undefined) {
+        days.push({ day, value: 0, count: 0, firstAt: null, lastAt: null })
+        continue
+      }
+      const value = tallyValue(definition, tally)
+      days.push({
+        day,
+        value,
+        count: tally.count,
+        firstAt: tally.firstAt ?? null,
+        lastAt: tally.lastAt ?? null,
+      })
+      records += tally.count
+      recordedDays += 1
+      total += value
+      if (min === null || value < min) min = value
+      if (max === null || value > max) max = value
+      if (tally.lastAt !== undefined) {
+        lastAt = tally.lastAt
+        lastValue = tally.lastValue ?? null
+      }
+    }
+
+    for (const record of own) {
+      const day = logicalDay(record.at, boundaryHour)
+      if (!holds(range, day) || day > today) continue
+      const hour = new Date(record.at).getHours()
+      byHour[hour] = (byHour[hour] ?? 0) + 1
+    }
+
+    if (definition.archived && records === 0) continue
+
+    stats.push({
+      definition,
+      aggregate: aggregateOf(definition),
+      days,
+      records,
+      recordedDays,
+      total,
+      average: recordedDays > 0 ? total / recordedDays : 0,
+      min,
+      max,
+      lastValue,
+      lastAt,
+      byHour,
     })
   }
 
