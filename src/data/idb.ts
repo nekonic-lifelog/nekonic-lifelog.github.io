@@ -1,9 +1,9 @@
 import { DEFAULT_SETTINGS, type Settings } from '../lib/types'
 import { newId } from '../lib/ids'
-import type { RowTypes, Snapshot, Store, TableName } from './store'
+import type { DraftStore, JournalDraft, RowTypes, Snapshot, Store, TableName } from './store'
 
 const DB_NAME = 'lifelog'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const TABLES: TableName[] = [
   'definitions',
   'records',
@@ -18,6 +18,7 @@ const INDEXES: Partial<Record<TableName, string[]>> = {
   journal: ['projectId'],
 }
 const META = 'meta'
+const DRAFTS = 'drafts'
 
 function promisify<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -62,6 +63,9 @@ function open(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(META)) {
         db.createObjectStore(META, { keyPath: 'key' })
       }
+      if (!db.objectStoreNames.contains(DRAFTS)) {
+        db.createObjectStore(DRAFTS, { keyPath: 'key' })
+      }
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -76,7 +80,7 @@ async function readMeta<T>(db: IDBDatabase, key: string): Promise<T | undefined>
   return row?.value
 }
 
-export class IdbStore implements Store {
+export class IdbStore implements Store, DraftStore {
   #db: IDBDatabase | null = null
   #deviceId: string | null = null
 
@@ -157,6 +161,27 @@ export class IdbStore implements Store {
     const db = await this.#open()
     const tx = db.transaction(META, 'readwrite')
     tx.objectStore(META).put({ key: 'settings', value: settings })
+    await done(tx)
+  }
+
+  async loadDraft(key: string): Promise<JournalDraft | null> {
+    const db = await this.#open()
+    const tx = db.transaction(DRAFTS, 'readonly')
+    const row = await promisify<JournalDraft | undefined>(tx.objectStore(DRAFTS).get(key))
+    return row ?? null
+  }
+
+  async saveDraft(draft: JournalDraft): Promise<void> {
+    const db = await this.#open()
+    const tx = db.transaction(DRAFTS, 'readwrite')
+    tx.objectStore(DRAFTS).put(draft)
+    await done(tx)
+  }
+
+  async clearDraft(key: string): Promise<void> {
+    const db = await this.#open()
+    const tx = db.transaction(DRAFTS, 'readwrite')
+    tx.objectStore(DRAFTS).delete(key)
     await done(tx)
   }
 

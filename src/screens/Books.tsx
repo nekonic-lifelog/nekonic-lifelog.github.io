@@ -6,10 +6,13 @@ import {
   booksByStatus,
   liveBooks,
 } from '../lib/selectBooks'
-import type { Book, BookStatus } from '../lib/types'
+import { journalByBook, journalPreview } from '../lib/selectJournal'
+import type { Book, BookStatus, Journal } from '../lib/types'
 import { useApp } from '../state/app'
 import { useBooks } from '../state/books'
+import { JournalEdit } from './JournalEdit'
 import '../styles/books.css'
+import '../styles/journal.css'
 
 const TABS: { status: BookStatus; label: string }[] = [
   { status: 'reading', label: '읽는 중' },
@@ -17,9 +20,15 @@ const TABS: { status: BookStatus; label: string }[] = [
   { status: 'dropped', label: '중단' },
 ]
 
+interface Writing {
+  entry: Journal | null
+  bookId: string
+}
+
 export function Books() {
   const app = useApp()
   const [tab, setTab] = useState<BookStatus>('reading')
+  const [writing, setWriting] = useState<Writing | null>(null)
 
   const counts = useMemo(() => {
     const all = liveBooks(app.snapshot)
@@ -31,6 +40,17 @@ export function Books() {
   }, [app.snapshot])
 
   const shown = useMemo(() => booksByStatus(app.snapshot, tab), [app.snapshot, tab])
+
+  if (writing) {
+    return (
+      <JournalEdit
+        entry={writing.entry}
+        kind="memo"
+        defaultBookId={writing.bookId}
+        onDone={() => setWriting(null)}
+      />
+    )
+  }
 
   return (
     <div className="screen">
@@ -63,7 +83,12 @@ export function Books() {
       ) : (
         <ul className="book-list">
           {shown.map((book) => (
-            <BookCard key={book.id} book={book} />
+            <BookCard
+              key={book.id}
+              book={book}
+              onWrite={() => setWriting({ entry: null, bookId: book.id })}
+              onOpen={(entry) => setWriting({ entry, bookId: entry.bookId ?? book.id })}
+            />
           ))}
         </ul>
       )}
@@ -156,7 +181,13 @@ function BookComposer() {
   )
 }
 
-function BookCard({ book }: { book: Book }) {
+interface BookCardProps {
+  book: Book
+  onWrite(): void
+  onOpen(entry: Journal): void
+}
+
+function BookCard({ book, onWrite, onOpen }: BookCardProps) {
   const app = useApp()
   const api = useBooks()
   const boundaryHour = app.snapshot.settings.dayBoundaryHour
@@ -203,6 +234,8 @@ function BookCard({ book }: { book: Book }) {
         </ul>
       )}
 
+      <BookNotes book={book} onWrite={onWrite} onOpen={onOpen} />
+
       <div className="btn-row">
         {sessions.length > 0 && (
           <button type="button" onClick={() => void api.undoLastSession(book)}>
@@ -237,6 +270,53 @@ function BookCard({ book }: { book: Book }) {
         </button>
       </div>
     </li>
+  )
+}
+
+function BookNotes({ book, onWrite, onOpen }: BookCardProps) {
+  const app = useApp()
+  const [open, setOpen] = useState(false)
+  const notes = useMemo(() => journalByBook(app.snapshot, book.id), [app.snapshot, book.id])
+
+  return (
+    <div className="book-notes">
+      <button
+        type="button"
+        className="link-btn"
+        aria-expanded={open}
+        aria-label={`${book.title} 메모 ${notes.length}건`}
+        onClick={() => setOpen((cur) => !cur)}
+      >
+        메모 {notes.length}
+      </button>
+
+      {open && (
+        <>
+          {notes.length === 0 ? (
+            <p className="empty">아직 붙인 메모가 없습니다.</p>
+          ) : (
+            <ul className="journal-list">
+              {notes.map((note) => (
+                <li key={note.id}>
+                  <button type="button" className="journal-item" onClick={() => onOpen(note)}>
+                    <span className="journal-item__meta">
+                      <span className="journal-item__time">
+                        {logicalDay(note.at, app.boundaryHour)}
+                      </span>
+                    </span>
+                    {note.title && <span className="journal-item__title">{note.title}</span>}
+                    <span className="journal-item__preview">{journalPreview(note)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button type="button" className="link-btn" onClick={onWrite}>
+            메모 쓰기
+          </button>
+        </>
+      )}
+    </div>
   )
 }
 

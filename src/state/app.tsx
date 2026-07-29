@@ -11,8 +11,9 @@ import type { Clock } from '../lib/clock'
 import { todayKey, type DayKey } from '../lib/day'
 import type { Settings } from '../lib/types'
 import type { WriteCtx } from '../data/mutations'
-import type { RowTypes, Snapshot, Store, TableName } from '../data/store'
+import type { DraftStore, RowTypes, Snapshot, Store, TableName } from '../data/store'
 import { notifyDirty } from './dirty'
+import { DraftCtx, draftStoreOf } from './drafts'
 import { DEFAULT_SETTINGS } from '../lib/types'
 
 const EMPTY: Snapshot = {
@@ -60,10 +61,11 @@ export function AppProvider({
   clock,
   children,
 }: {
-  store: Store
+  store: Store & Partial<DraftStore>
   clock: Clock
   children: ReactNode
 }) {
+  const drafts = useMemo(() => draftStoreOf(store), [store])
   const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY)
   const [deviceId, setDeviceId] = useState('')
   const [ready, setReady] = useState(false)
@@ -127,5 +129,9 @@ export function AppProvider({
     }
   }, [snapshot, ready, deviceId, clock, ctx, store, write])
 
-  return <Ctx.Provider value={api}>{children}</Ctx.Provider>
+  return (
+    <Ctx.Provider value={api}>
+      <DraftCtx.Provider value={drafts}>{children}</DraftCtx.Provider>
+    </Ctx.Provider>
+  )
 }
