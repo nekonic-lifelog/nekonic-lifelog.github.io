@@ -79,6 +79,183 @@
   white-space: nowrap;
 }
 
+.measures {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.measure {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.measure__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.measure__name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.measure__facts {
+  display: flex;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.measure__fact {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.measure__value {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.measure__label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.measure__scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.measure__trend,
+.measure__hourbars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.measure__day,
+.measure__hour {
+  flex: 1 1 0;
+  min-width: 6px;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  background: var(--line);
+  border-radius: 2px;
+}
+
+.measure__fill {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.measure__hours {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.measure__hourbars {
+  height: 32px;
+  min-width: 240px;
+}
+
+.measure__hourticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.measure-overlay {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.overlay {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.overlay__picks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.overlay__pick {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.overlay__body {
+  position: relative;
+  height: 72px;
+}
+
+.overlay__series {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.overlay__point {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.overlay__mark {
+  position: absolute;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  margin-left: -3.5px;
+  margin-bottom: -3.5px;
+}
+
+.overlay__series--a .overlay__mark {
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.overlay__series--b .overlay__mark {
+  background: transparent;
+  border: 1.5px solid var(--muted);
+  transform: rotate(45deg);
+}
+
 .stat-bar--archived {
   opacity: 0.6;
 }

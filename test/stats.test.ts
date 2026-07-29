@@ -1168,3 +1168,216 @@ describe('통계 화면', () => {
     expect(await screen.findByLabelText('옛 습관 보관 0퍼센트')).toBeTruthy()
   })
 })
+
+describe('통계 화면 — 기록 지표', () => {
+  const caffeine = () =>
+    makeDef({
+      name: '카페인',
+      kind: 'quantity',
+      unit: 'mg',
+      scored: false,
+      order: 0,
+      createdAt: '2026-03-01T09:00:00+09:00',
+    })
+
+  const mood = () =>
+    makeDef({
+      name: '컨디션',
+      kind: 'quantity',
+      scored: false,
+      aggregate: 'last',
+      scale: { min: 1, max: 9 },
+      order: 1,
+      createdAt: '2026-03-01T09:00:00+09:00',
+    })
+
+  it('기록 지표는 습관 카드가 아니라 제 카드에 나온다', async () => {
+    mount(snap({ definitions: [makeDef({ name: '아침 약' }), caffeine()] }))
+
+    const habits = (await screen.findByText('습관')).closest('.card')!
+    expect(within(habits as HTMLElement).getByText('아침 약')).toBeTruthy()
+    expect(within(habits as HTMLElement).queryByText('카페인')).toBeNull()
+
+    const measures = screen.getByText('기록 지표').closest('.card')!
+    expect(within(measures as HTMLElement).getByText('카페인')).toBeTruthy()
+  })
+
+  it('기록 지표가 없으면 카드가 아예 없다', async () => {
+    mount(snap({ definitions: [makeDef({ name: '아침 약' })] }))
+
+    await screen.findByText('습관')
+    expect(screen.queryByText('기록 지표')).toBeNull()
+  })
+
+  it('평균과 최대와 기록한 날 수를 보여준다', async () => {
+    const def = caffeine()
+    mount(
+      snap({
+        definitions: [def],
+        records: [
+          makeRecord(def.id, '2026-03-10T09:00:00+09:00', 100),
+          makeRecord(def.id, '2026-03-10T15:00:00+09:00', 200),
+          makeRecord(def.id, '2026-03-11T09:00:00+09:00', 150),
+        ],
+      }),
+    )
+
+    const card = (await screen.findByText('카페인')).closest('.measure')!
+    expect(within(card as HTMLElement).getByText('225')).toBeTruthy()
+    expect(within(card as HTMLElement).getByText('300')).toBeTruthy()
+    expect(within(card as HTMLElement).getByText('2일')).toBeTruthy()
+  })
+
+  it('더하는 지표는 시각대별 분포를 보여준다', async () => {
+    const def = caffeine()
+    mount(
+      snap({
+        definitions: [def],
+        records: [
+          makeRecord(def.id, '2026-03-10T15:00:00+09:00', 100),
+          makeRecord(def.id, '2026-03-11T15:00:00+09:00', 100),
+          makeRecord(def.id, '2026-03-11T21:00:00+09:00', 50),
+        ],
+      }),
+    )
+
+    expect(await screen.findByLabelText('15시 2건')).toBeTruthy()
+    expect(screen.getByLabelText('21시 1건')).toBeTruthy()
+    expect(screen.getByLabelText('3시 0건')).toBeTruthy()
+  })
+
+  it('마지막 값만 취하는 지표는 시각대별 분포를 보여주지 않는다', async () => {
+    mount(snap({ definitions: [mood()] }))
+
+    await screen.findByText('컨디션')
+    expect(screen.queryByLabelText(/시 \d+건/)).toBeNull()
+  })
+
+  it('추이 막대에 날짜와 값이 문장으로 붙는다', async () => {
+    const def = caffeine()
+    mount(
+      snap({
+        definitions: [def],
+        records: [makeRecord(def.id, '2026-03-10T09:00:00+09:00', 120)],
+      }),
+    )
+
+    expect(await screen.findByLabelText('2026-03-10 120')).toBeTruthy()
+  })
+
+  it('기록이 없는 날은 추이에 아무것도 그리지 않는다', async () => {
+    const def = caffeine()
+    mount(
+      snap({
+        definitions: [def],
+        records: [makeRecord(def.id, '2026-03-10T09:00:00+09:00', 120)],
+      }),
+    )
+
+    const drawn = await screen.findByLabelText('2026-03-10 120')
+    expect(drawn.querySelector('.measure__fill')).toBeTruthy()
+
+    const blank = screen.getByLabelText('2026-03-09 기록 없음')
+    expect(blank.querySelector('.measure__fill')).toBeNull()
+  })
+
+  it('기록이 없는 날은 겹쳐 보기에도 점을 찍지 않는다', async () => {
+    const user = userEvent.setup()
+    const a = caffeine()
+    const b = mood()
+    mount(
+      snap({
+        definitions: [a, b],
+        records: [makeRecord(a.id, '2026-03-10T09:00:00+09:00', 100)],
+      }),
+    )
+
+    await user.click(await screen.findByRole('button', { name: '겹쳐 보기' }))
+    const overlay = screen.getByRole('group', { name: '겹쳐 볼 지표' })
+
+    expect(within(overlay).getByLabelText('카페인 2026-03-10 100')).toBeTruthy()
+    expect(within(overlay).queryByLabelText(/카페인 2026-03-09/)).toBeNull()
+    expect(within(overlay).queryByLabelText(/컨디션/)).toBeNull()
+  })
+
+  it('겹쳐 보기는 접힌 채로 시작한다', async () => {
+    mount(snap({ definitions: [caffeine(), mood()] }))
+
+    const toggle = await screen.findByRole('button', { name: '겹쳐 보기' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('group', { name: '겹쳐 볼 지표' })).toBeNull()
+  })
+
+  it('지표가 하나뿐이면 겹쳐 보기가 없다', async () => {
+    mount(snap({ definitions: [caffeine()] }))
+
+    await screen.findByText('카페인')
+    expect(screen.queryByRole('button', { name: '겹쳐 보기' })).toBeNull()
+  })
+
+  it('펼치면 두 지표를 함께 그린다', async () => {
+    const user = userEvent.setup()
+    const a = caffeine()
+    const b = mood()
+    mount(
+      snap({
+        definitions: [a, b],
+        records: [
+          makeRecord(a.id, '2026-03-10T09:00:00+09:00', 100),
+          makeRecord(b.id, '2026-03-11T09:00:00+09:00', 5),
+        ],
+      }),
+    )
+
+    await user.click(await screen.findByRole('button', { name: '겹쳐 보기' }))
+
+    const overlay = screen.getByRole('group', { name: '겹쳐 볼 지표' })
+    expect(within(overlay).getByLabelText('카페인 2026-03-10 100')).toBeTruthy()
+    expect(within(overlay).getByLabelText('컨디션 2026-03-11 5')).toBeTruthy()
+  })
+
+  it('하루 밀어 보면 두 번째 지표의 날짜가 하루 뒤로 간다', async () => {
+    const user = userEvent.setup()
+    const a = caffeine()
+    const b = mood()
+    mount(
+      snap({
+        definitions: [a, b],
+        records: [
+          makeRecord(a.id, '2026-03-10T09:00:00+09:00', 100),
+          makeRecord(b.id, '2026-03-11T09:00:00+09:00', 5),
+        ],
+      }),
+    )
+
+    await user.click(await screen.findByRole('button', { name: '겹쳐 보기' }))
+    const overlay = screen.getByRole('group', { name: '겹쳐 볼 지표' })
+    expect(within(overlay).getByLabelText('컨디션 2026-03-11 5')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: '하루 밀어 보기' }))
+
+    const shifted = screen.getByRole('group', { name: '겹쳐 볼 지표' })
+    expect(within(shifted).getByLabelText('컨디션 2026-03-10 5')).toBeTruthy()
+    expect(within(shifted).queryByLabelText('컨디션 2026-03-11 5')).toBeNull()
+    expect(within(shifted).getByLabelText('카페인 2026-03-10 100')).toBeTruthy()
+  })
+
+  it('하루 밀어 보기는 다시 누르면 풀린다', async () => {
+    const user = userEvent.setup()
+    mount(snap({ definitions: [caffeine(), mood()] }))
+
+    await user.click(await screen.findByRole('button', { name: '겹쳐 보기' }))
+    const shift = screen.getByRole('button', { name: '하루 밀어 보기' })
+    expect(shift.getAttribute('aria-pressed')).toBe('false')
+
+    await user.click(shift)
+    expect(screen.getByRole('button', { name: '하루 밀어 보기' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+
+    await user.click(screen.getByRole('button', { name: '하루 밀어 보기' }))
+    expect(screen.getByRole('button', { name: '하루 밀어 보기' }).getAttribute('aria-pressed')).toBe(
+      'false',
+    )
+  })
+})
