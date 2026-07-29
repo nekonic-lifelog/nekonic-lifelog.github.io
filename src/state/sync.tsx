@@ -17,6 +17,7 @@ import {
   type CredentialStore,
   type Credentials,
   type RemoteConfig,
+  type SyncCache,
 } from '../sync/credentials'
 import { SyncEngine, initialSyncState, type SyncState } from '../sync/engine'
 
@@ -59,6 +60,7 @@ export interface SyncProviderProps {
   store: Store
   clock: Clock
   credentials?: CredentialStore
+  cache?: SyncCache
   makeRepo?(remote: RemoteConfig, token: string): GithubRepo
   onSnapshot?(s: Snapshot): void
   debounceMs?: number
@@ -89,6 +91,7 @@ export function SyncProvider(props: SyncProviderProps) {
     store,
     clock,
     credentials,
+    cache,
     makeRepo,
     onSnapshot,
     debounceMs,
@@ -120,6 +123,7 @@ export function SyncProvider(props: SyncProviderProps) {
         clock,
         ...(debounceMs === undefined ? {} : { debounceMs }),
         ...(recentMonths === undefined ? {} : { recentMonths }),
+        ...(cache === undefined ? {} : { cache }),
         onState: (s) => {
           if (aliveRef.current) setState(s)
         },
@@ -131,11 +135,31 @@ export function SyncProvider(props: SyncProviderProps) {
       setConnected(true)
       setState(engine.state)
       await engine.pull()
+      if (engineRef.current !== engine) return
+      await engine.push()
       if (!autoBackfill || engineRef.current !== engine) return
       void engine.backfill()
     },
-    [store, clock, build, debounceMs, recentMonths, autoBackfill],
+    [store, clock, build, debounceMs, recentMonths, cache, autoBackfill],
   )
+
+  useEffect(() => {
+    const retry = (): void => {
+      const engine = engineRef.current
+      if (engine === null || engine.state.authFailed) return
+      void engine.syncNow()
+    }
+    const onVisible = (): void => {
+      if (document.visibilityState !== 'visible') return
+      retry()
+    }
+    window.addEventListener('online', retry)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('online', retry)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
 
   useEffect(() => {
     aliveRef.current = true

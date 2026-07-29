@@ -1,5 +1,10 @@
+// @vitest-environment jsdom
+import { Blob as NodeBlob } from 'node:buffer'
+import { render } from '@testing-library/react'
+import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { importDataKey, openJson, sealJson } from '../src/crypto/cipher'
+import type { Envelope } from '../src/crypto/envelope'
 import { fromBase64, randomBytes, toBase64 } from '../src/crypto/kdf'
 import type { RowTypes, Snapshot, Store, TableName } from '../src/data/store'
 import { fixedClock, mutableClock, type Clock } from '../src/lib/clock'
@@ -8,7 +13,14 @@ import { DEFAULT_SETTINGS, type Base } from '../src/lib/types'
 import { GithubRepo } from '../src/remote/github'
 import { REDACTED } from '../src/remote/tokenScrub'
 import type { RepoRef } from '../src/remote/types'
-import { memorySyncCache } from '../src/sync/credentials'
+import { SyncProvider, useSync, type SyncApi, type SyncProviderProps } from '../src/state/sync'
+import {
+  memoryCredentials,
+  memorySyncCache,
+  type CredentialStore,
+  type Credentials,
+  type SyncCache,
+} from '../src/sync/credentials'
 import { SyncEngine, type SyncEngineOptions, type SyncState } from '../src/sync/engine'
 import { mergeRows } from '../src/sync/merge'
 import {
@@ -20,6 +32,12 @@ import {
   makeTodo,
   resetIds,
 } from './factories'
+
+Object.defineProperty(globalThis, 'Blob', {
+  value: NodeBlob,
+  configurable: true,
+  writable: true,
+})
 
 const TOKEN = 'test-token-do-not-use'
 const REPO: RepoRef = { owner: 'nekonic', repo: 'lifelog', branch: 'main' }
@@ -364,14 +382,64 @@ async function until(check: () => boolean, times = 5000): Promise<void> {
   throw new Error('기다리던 조건이 끝내 성립하지 않았습니다')
 }
 
+let watched: SyncApi | null = null
+
+function Watch(): null {
+  watched = useSync()
+  return null
+}
+
+function api(): SyncApi {
+  if (watched === null) throw new Error('SyncProvider가 아직 붙지 않았습니다')
+  return watched
+}
+
+const deadFetch = (async () => {
+  throw new TypeError('fetch failed')
+}) as unknown as typeof fetch
+
+function mountSync(
+  fake: Fake,
+  store: Bench,
+  vault: CredentialStore,
+  cache: SyncCache,
+  over: Partial<SyncProviderProps> = {},
+) {
+  return render(
+    createElement(SyncProvider, {
+      store,
+      clock,
+      credentials: vault,
+      cache,
+      debounceMs: 1000,
+      makeRepo: () =>
+        new GithubRepo(REPO, TOKEN, { fetch: fake.fetch, sleep: fake.sleep, maxAttempts: 2 }),
+      children: createElement(Watch),
+      ...over,
+    }),
+  )
+}
+
+function deadRepo(fake: Fake): GithubRepo {
+  return new GithubRepo(REPO, TOKEN, { fetch: deadFetch, sleep: fake.sleep, maxAttempts: 2 })
+}
+
+async function savedCreds(vault: CredentialStore): Promise<void> {
+  const envelope: Envelope = { v: 1, wraps: [] }
+  const creds: Credentials = { dataKey, envelope, token: TOKEN, remote: { ...REPO } }
+  await vault.save(creds)
+}
+
 beforeEach(async () => {
   resetIds()
+  watched = null
   dataKey = await importDataKey(randomBytes(32))
   clock = fixedClock(NOW)
 })
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 
 describe('두 기기 왕복', () => {
@@ -959,3 +1027,163 @@ describe('상태 알리기', () => {
     expect(fake.commitCount()).toBe(1)
   })
 })
+
+describe('앱을 다시 열 때', () => {
+  it('망이 끊겨 못 올린 변경이 다시 열 때 올라간다', async () => {
+    const fake = fakeGithub()
+    const vault = memoryCredentials()
+    const cache = memorySyncCache()
+    const store = memoryStore('phone')
+    await savedCreds(vault)
+    await store.put('books', [makeBook({ deviceId: 'phone', id: 'bk-1' })])
+
+    const first = mountSync(fake, store, vault, cache, { makeRepo: () => deadRepo(fake) })
+    await until(() => watched?.state.lastError != null)
+    expect(fake.requests).toEqual([])
+    first.unmount()
+
+    const second = mountSync(fake, store, vault, cache)
+    await until(() => fake.paths().includes('books/phone.enc'))
+    await api().syncNow()
+    second.unmount()
+
+    const files = await remoteFiles(fake)
+    expect(files.get('books/phone.enc')).toHaveLength(1)
+    expect(fake.commitCount()).toBe(1)
+  })
+
+  it('올릴 것이 없으면 다시 열어도 쓰기 요청을 만들지 않는다', async () => {
+    const fake = fakeGithub()
+    const vault = memoryCredentials()
+    const cache = memorySyncCache()
+    const store = memoryStore('phone')
+    await savedCreds(vault)
+    await store.put('books', [makeBook({ deviceId: 'phone', id: 'bk-1' })])
+
+    const first = mountSync(fake, store, vault, cache)
+    await until(() => fake.paths().includes('books/phone.enc'))
+    await api().syncNow()
+    first.unmount()
+
+    const mark = fake.requests.length
+    const second = mountSync(fake, store, vault, cache)
+    await until(() => watched?.state.lastSuccessAt != null)
+    await api().syncNow()
+    second.unmount()
+
+    const after = fake.requests.slice(mark)
+    expect(after.length).toBeGreaterThan(0)
+    expect(after.filter((r) => !r.startsWith('GET '))).toEqual([])
+    expect(fake.commitCount()).toBe(1)
+  })
+
+  it('망이 돌아오면 못 올린 변경을 다시 올린다', async () => {
+    const fake = fakeGithub()
+    const vault = memoryCredentials()
+    const cache = memorySyncCache()
+    const store = memoryStore('phone')
+    await savedCreds(vault)
+    await store.put('books', [makeBook({ deviceId: 'phone', id: 'bk-1' })])
+
+    const view = mountSync(fake, store, vault, cache)
+    await until(() => fake.paths().includes('books/phone.enc'))
+    await api().syncNow()
+    expect(fake.commitCount()).toBe(1)
+
+    await store.put('books', [makeBook({ deviceId: 'phone', id: 'bk-2' })])
+    window.dispatchEvent(new Event('online'))
+    await until(() => fake.commitCount() === 2)
+    view.unmount()
+
+    const files = await remoteFiles(fake)
+    expect(files.get('books/phone.enc')).toHaveLength(2)
+  })
+
+  it('화면이 다시 보이면 못 올린 변경을 다시 올린다', async () => {
+    const fake = fakeGithub()
+    const vault = memoryCredentials()
+    const cache = memorySyncCache()
+    const store = memoryStore('phone')
+    await savedCreds(vault)
+    await store.put('books', [makeBook({ deviceId: 'phone', id: 'bk-1' })])
+
+    const view = mountSync(fake, store, vault, cache)
+    await until(() => fake.paths().includes('books/phone.enc'))
+    await api().syncNow()
+
+    await store.put('books', [makeBook({ deviceId: 'phone', id: 'bk-2' })])
+    expect(document.visibilityState).toBe('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await until(() => fake.commitCount() === 2)
+    view.unmount()
+
+    const files = await remoteFiles(fake)
+    expect(files.get('books/phone.enc')).toHaveLength(2)
+  })
+
+  it('토큰이 막힌 뒤에는 망이 돌아와도 두드리지 않는다', async () => {
+    const fake = fakeGithub()
+    const vault = memoryCredentials()
+    const cache = memorySyncCache()
+    const store = memoryStore('phone')
+    await savedCreds(vault)
+    await store.put('books', [makeBook({ deviceId: 'phone', id: 'bk-1' })])
+
+    fake.unauthorized = true
+    const view = mountSync(fake, store, vault, cache)
+    await until(() => watched?.state.authFailed === true)
+
+    fake.unauthorized = false
+    const mark = fake.requests.length
+    window.dispatchEvent(new Event('online'))
+    document.dispatchEvent(new Event('visibilitychange'))
+    await settle()
+
+    expect(fake.requests).toHaveLength(mark)
+    expect(fake.paths()).toEqual([])
+    expect(fake.commitCount()).toBe(0)
+    view.unmount()
+  })
+
+  it('언마운트하면 붙였던 리스너가 남지 않는다', async () => {
+    const fake = fakeGithub()
+    const vault = memoryCredentials()
+    const cache = memorySyncCache()
+    const store = memoryStore('phone')
+    await savedCreds(vault)
+    await store.put('books', [makeBook({ deviceId: 'phone', id: 'bk-1' })])
+
+    const added: Array<{ type: string; fn: unknown }> = []
+    const removed: Array<{ type: string; fn: unknown }> = []
+    for (const target of [window, document] as EventTarget[]) {
+      const add = target.addEventListener.bind(target)
+      const drop = target.removeEventListener.bind(target)
+      vi.spyOn(target, 'addEventListener').mockImplementation((type, fn, opts) => {
+        added.push({ type, fn })
+        add(type, fn, opts)
+      })
+      vi.spyOn(target, 'removeEventListener').mockImplementation((type, fn, opts) => {
+        removed.push({ type, fn })
+        drop(type, fn, opts)
+      })
+    }
+
+    const view = mountSync(fake, store, vault, cache)
+    await until(() => fake.paths().includes('books/phone.enc'))
+    await api().syncNow()
+
+    const mine = added.filter((e) => e.type === 'online' || e.type === 'visibilitychange')
+    expect(mine.map((e) => e.type).sort()).toEqual(['online', 'visibilitychange'])
+
+    view.unmount()
+    for (const entry of mine) expect(removed).toContainEqual(entry)
+
+    await store.put('books', [makeBook({ deviceId: 'phone', id: 'bk-2' })])
+    window.dispatchEvent(new Event('online'))
+    document.dispatchEvent(new Event('visibilitychange'))
+    await settle()
+
+    expect(fake.commitCount()).toBe(1)
+  })
+})
+
