@@ -138,7 +138,10 @@ function byId(snapshot: Snapshot, id: string): Todo {
   return found
 }
 
-beforeEach(resetIds)
+beforeEach(() => {
+  resetIds()
+  window.location.hash = ''
+})
 afterEach(cleanup)
 
 describe('장소와 메모 담기', () => {

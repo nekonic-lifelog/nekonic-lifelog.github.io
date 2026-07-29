@@ -219,16 +219,43 @@
   align-items: flex-start;
 }
 
-.project-select {
+.task-more {
   flex: 0 0 auto;
-  font: inherit;
-  font-size: 13px;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 6px 8px;
-  min-height: 34px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 7px;
+  min-height: 32px;
+}
+
+.task-more[aria-expanded='true'] {
+  color: var(--accent);
+}
+
+.task-status {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.task-menu {
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 5px;
+}
+
+.task-menu button {
+  font-size: 12px;
+  padding: 2px 9px;
+  min-height: 30px;
+  white-space: nowrap;
+}
+
+.task-menu button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .project-assignee {

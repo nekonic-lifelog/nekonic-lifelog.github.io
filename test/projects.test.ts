@@ -143,6 +143,7 @@ function projectById(snapshot: Snapshot, id: string): Project {
 beforeEach(() => {
   resetIds()
   taskSeq = 0
+  window.location.hash = ''
 })
 
 afterEach(cleanup)
@@ -630,6 +631,7 @@ describe('할 일 화면', () => {
   })
 
   it('완료한 프로젝트에는 알림 칩을 그리지 않는다', async () => {
+    const user = userEvent.setup()
     mountScreen({
       projects: [
         makeProject({
@@ -641,8 +643,41 @@ describe('할 일 화면', () => {
       ],
     })
 
+    await user.click(await screen.findByRole('button', { name: '보류·완료 1개 펼치기' }))
     await screen.findAllByRole('button', { name: /이사 준비/ })
     expect(screen.queryByLabelText(/알림 예정/)).toBeNull()
+  })
+
+  it('보류·완료한 프로젝트는 접혀 있다가 펼치면 나온다', async () => {
+    const user = userEvent.setup()
+    mountScreen({
+      projects: [
+        makeProject({ id: 'p1', name: '이사 준비' }),
+        makeProject({ id: 'p2', name: '지난 워크숍', status: 'done' }),
+        makeProject({ id: 'p3', name: '멈춘 사이드', status: 'held' }),
+      ],
+    })
+
+    expect(await screen.findByRole('button', { name: /이사 준비/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /지난 워크숍/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /멈춘 사이드/ })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: '보류·완료 2개 펼치기' }))
+
+    expect(await screen.findByRole('button', { name: /지난 워크숍/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /멈춘 사이드/ })).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: '보류·완료 2개 접기' }))
+    expect(screen.queryByRole('button', { name: /지난 워크숍/ })).toBeNull()
+  })
+
+  it('진행 중인 프로젝트가 없어도 접이는 남는다', async () => {
+    mountScreen({
+      projects: [makeProject({ id: 'p1', name: '지난 워크숍', status: 'done' })],
+    })
+
+    expect(await screen.findByRole('button', { name: '보류·완료 1개 펼치기' })).toBeTruthy()
+    expect(screen.queryByText('프로젝트가 없습니다.')).toBeNull()
   })
 
   it('오프셋이 비면 알림 칩을 그리지 않는다', async () => {

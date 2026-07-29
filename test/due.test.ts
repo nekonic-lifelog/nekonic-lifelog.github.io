@@ -108,7 +108,10 @@ function todoById(h: Harness, id: string): Todo {
   return found
 }
 
-beforeEach(resetIds)
+beforeEach(() => {
+  resetIds()
+  window.location.hash = ''
+})
 afterEach(cleanup)
 
 describe('마감 시각 변환', () => {

@@ -97,7 +97,10 @@ function emptyRange(minDays = TIMELINE_MIN_DAYS) {
   return timelineRange([], TODAY, minDays, HOUR)
 }
 
-beforeEach(resetIds)
+beforeEach(() => {
+  resetIds()
+  window.location.hash = ''
+})
 afterEach(cleanup)
 
 describe('시간 범위 잡기', () => {

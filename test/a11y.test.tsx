@@ -48,7 +48,10 @@ function mount(screenEl: Parameters<typeof createElement>[0], snapshot: Snapshot
   )
 }
 
-beforeEach(resetIds)
+beforeEach(() => {
+  resetIds()
+  window.location.hash = ''
+})
 afterEach(cleanup)
 
 describe('D-day 칩 — 부호만으로 구분하지 않는다', () => {
